@@ -48,12 +48,44 @@ STATUS_STYLES = {
 }
 
 
+WORDMARK = r"""
+ __   _____ ___ ___ ___  ___ _____
+ \ \ / / __| _ \   \_ _|/ __|_   _|
+  \ V /| _||   / |) | || (__  | |
+   \_/ |___|_|_\___/___|\___| |_|
+"""
+
+
 def banner(mode: str, model: str) -> None:
     title = Text()
     title.append("  VERDICT", style="bold cyan")
     title.append("  proof, not vibes", style="dim italic")
     console.print(title)
     console.print(f"  [dim]model[/] [cyan]{model}[/]  [dim]mode[/] [cyan]{mode}[/]\n")
+
+
+def shell_banner(model: str, ollama_ok: bool, docker_ok: bool) -> None:
+    console.print(f"[bold cyan]{WORDMARK}[/]")
+    console.print("  [dim italic]proof, not vibes - the neutral referee for AI-written code[/]\n")
+    ollama_txt = "[green]ready[/]" if ollama_ok else "[red]down[/]"
+    docker_txt = "[green]ready[/]" if docker_ok else "[red]down[/]"
+    console.print(f"  [dim]model[/] [cyan]{model}[/]   [dim]ollama[/] {ollama_txt}   [dim]docker[/] {docker_txt}")
+    console.print("  [dim]type[/] [cyan]help[/] [dim]for commands,[/] [cyan]exit[/] [dim]to leave[/]\n")
+
+
+def shell_help() -> None:
+    table = Table.grid(padding=(0, 3))
+    table.add_column(style="cyan", justify="left")
+    table.add_column(style="dim")
+    table.add_row("run [options]", "verify a change (--ref, --base, --intent, --scenarios, --max-scenarios)")
+    table.add_row("plan [options]", "dry-run: show scenarios without executing (--manual writes a template)")
+    table.add_row("logs <run-id>", "full evidence for a past run")
+    table.add_row("health", "liveness check: config, Ollama, Docker")
+    table.add_row("init [options]", "first-time setup for this repo")
+    table.add_row("clear", "clear the screen")
+    table.add_row("exit / quit", "leave the verdict shell")
+    console.print(table)
+    console.print()
 
 
 def stage_ok(name: str, detail: str = "") -> None:

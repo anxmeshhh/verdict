@@ -1,6 +1,8 @@
 """Module 8 - CLI. The full pipeline as `verdict <command>` with staged visibility."""
+import shlex
 from pathlib import Path
 
+import click
 import typer
 
 from verdict import ui
@@ -15,6 +17,54 @@ from verdict.testgen import generate_test_code
 from verdict.validator import validate
 
 app = typer.Typer(add_completion=False, help="Verdict - proves code does what it claims, before a human reviews it.")
+
+
+@app.callback(invoke_without_command=True)
+def _main(ctx: typer.Context):
+    """With no subcommand, drop into the interactive verdict shell."""
+    if ctx.invoked_subcommand is None:
+        _shell()
+
+
+def _shell() -> None:
+    config = load_config()
+    with ui.working("starting verdict..."):
+        ollama_ok = check_ollama(config.ollama_url).reachable
+        docker_ok = check_docker()
+    ui.shell_banner(config.model, ollama_ok, docker_ok)
+
+    group = typer.main.get_command(app)
+    while True:
+        try:
+            line = ui.console.input("[bold cyan]verdict[/] [dim]>[/] ").strip()
+        except (KeyboardInterrupt, EOFError):
+            ui.console.print("\n  [dim]bye - every verdict stays in .verdict/runs/[/]")
+            return
+        if not line:
+            continue
+        if line in ("exit", "quit", "q"):
+            ui.console.print("  [dim]bye - every verdict stays in .verdict/runs/[/]")
+            return
+        if line == "help":
+            ui.shell_help()
+            continue
+        if line == "clear":
+            ui.console.clear()
+            continue
+        try:
+            args = shlex.split(line)
+        except ValueError as e:
+            ui.stage_fail("parse", str(e))
+            continue
+        try:
+            group.main(args=args, prog_name="verdict", standalone_mode=False)
+        except (typer.Exit, click.exceptions.Exit):
+            pass  # commands signal exit codes; the shell lives on
+        except click.ClickException as e:
+            ui.stage_fail("usage", e.format_message())
+        except KeyboardInterrupt:
+            ui.console.print("\n  [yellow]interrupted[/]")
+        ui.console.print()
 
 
 def _fail(stage: str, message: str) -> None:
