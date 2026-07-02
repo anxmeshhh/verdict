@@ -56,20 +56,22 @@ WORDMARK = r"""
 """
 
 
-def banner(mode: str, model: str) -> None:
+def banner(mode: str, model: str, provider: str = "ollama") -> None:
     title = Text()
     title.append("  VERDICT", style="bold cyan")
     title.append("  proof, not vibes", style="dim italic")
     console.print(title)
-    console.print(f"  [dim]model[/] [cyan]{model}[/]  [dim]mode[/] [cyan]{mode}[/]\n")
+    where = "[dim](local)[/]" if provider == "ollama" else f"[yellow]@ {provider}[/]"
+    console.print(f"  [dim]model[/] [cyan]{model}[/] {where}  [dim]mode[/] [cyan]{mode}[/]\n")
 
 
-def shell_banner(model: str, ollama_ok: bool, docker_ok: bool) -> None:
+def shell_banner(model: str, provider: str, llm_ok: bool, docker_ok: bool) -> None:
     console.print(f"[bold cyan]{WORDMARK}[/]")
     console.print("  [dim italic]proof, not vibes - the neutral referee for AI-written code[/]\n")
-    ollama_txt = "[green]ready[/]" if ollama_ok else "[red]down[/]"
+    llm_txt = "[green]ready[/]" if llm_ok else "[red]down[/]"
     docker_txt = "[green]ready[/]" if docker_ok else "[red]down[/]"
-    console.print(f"  [dim]model[/] [cyan]{model}[/]   [dim]ollama[/] {ollama_txt}   [dim]docker[/] {docker_txt}")
+    local_tag = "" if provider == "ollama" else " [yellow](cloud)[/]"
+    console.print(f"  [dim]model[/] [cyan]{model}[/]   [dim]{provider}[/]{local_tag} {llm_txt}   [dim]docker[/] {docker_txt}")
     console.print("  [dim]type[/] [cyan]help[/] [dim]for commands,[/] [cyan]exit[/] [dim]to leave[/]\n")
 
 
@@ -78,10 +80,13 @@ def shell_help() -> None:
     table.add_column(style="cyan", justify="left")
     table.add_column(style="dim")
     table.add_row("run [options]", "verify a change (--ref, --base, --intent, --scenarios, --hybrid)")
+    table.add_row("watch [options]", "live mode: verify automatically when the working tree settles")
     table.add_row("plan [options]", "dry-run: show scenarios without executing (--manual writes a template)")
-    table.add_row("logs <run-id>", "full evidence for a past run")
-    table.add_row("health", "liveness check: config, Ollama, Docker")
-    table.add_row("config get/set", "read or change settings (audit-logged)")
+    table.add_row("runs", "browse past verdicts as a table")
+    table.add_row("report [run-id]", "export a run as a shareable HTML page ('last' = newest)")
+    table.add_row("logs [run-id]", "full evidence for a past run ('last' = newest)")
+    table.add_row("health", "liveness check: config, LLM provider, Docker")
+    table.add_row("config get/set", "settings: model, provider (ollama/openrouter/groq/gemini/...), api_key")
     table.add_row("install-hook", "pre-push gate: verify every push before it leaves this machine")
     table.add_row("init [options]", "first-time setup for this repo")
     table.add_row("clear", "clear the screen")
@@ -170,6 +175,33 @@ def verdict_panel(record: dict) -> None:
             f"   [dim]llm time[/] {tokens['llm_seconds']}s"
         )
     console.print(footer + "\n")
+
+
+def runs_table(records: list[dict]) -> None:
+    """Past verdicts as a table - history at a glance, JSON stays on disk."""
+    table = Table(border_style="dim", header_style="bold cyan", padding=(0, 1))
+    table.add_column("run")
+    table.add_column("when", style="dim")
+    table.add_column("verdict")
+    table.add_column("evidence", style="dim")
+    table.add_column("intent")
+    table.add_column("llm", style="dim", justify="right")
+    for record in records:
+        status = record.get("status", "completed")
+        if status == "completed":
+            risk = record.get("risk") or {}
+            level = risk.get("level", "?")
+            verdict = Text(f" {level} ", style=RISK_STYLES.get(level, "bold"))
+            evidence = f"{risk.get('passed', 0)} passed / {risk.get('failed', 0)} failed"
+        else:
+            verdict = Text(f" {status.upper()} ", style="bold yellow" if status == "errored" else "dim")
+            evidence = f"at {record.get('failed_stage', '?')}"
+        when = (record.get("created_at") or "")[:16].replace("T", " ")
+        intent = (record.get("intent") or "-").splitlines()[0][:44]
+        tokens = record.get("tokens") or {}
+        llm = f"{tokens.get('prompt_tokens', 0) + tokens.get('output_tokens', 0):,} tok" if tokens.get("llm_calls") else "-"
+        table.add_row(record["run_id"], when, verdict, evidence, intent, llm)
+    console.print(table)
 
 
 def show_test_code(code: str) -> None:

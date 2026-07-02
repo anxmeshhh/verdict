@@ -84,24 +84,30 @@ def check_vagueness(intent: str) -> str | None:
     return None
 
 
-def extract_from_commit(repo: Path, ref: str = "HEAD") -> IntentResult:
+def _pathspec(paths: list[str] | None) -> list[str]:
+    """Scope any diff to the files/folders the developer chose - full control
+    over what gets verified. Empty/None means the whole change."""
+    return ["--", *paths] if paths else []
+
+
+def extract_from_commit(repo: Path, ref: str = "HEAD", paths: list[str] | None = None) -> IntentResult:
     """Diff + commit message of a single commit."""
     intent = _git(repo, "log", "-1", "--format=%B", ref).strip()
-    diff = _git(repo, "show", ref, "--format=", "--no-color")
+    diff = _git(repo, "show", ref, "--format=", "--no-color", *_pathspec(paths))
     return _build(diff, intent)
 
 
-def extract_from_range(repo: Path, base: str, head: str = "HEAD", intent: str | None = None) -> IntentResult:
+def extract_from_range(repo: Path, base: str, head: str = "HEAD", intent: str | None = None, paths: list[str] | None = None) -> IntentResult:
     """Diff of base..head; intent from arg or the combined commit messages in the range."""
-    diff = _git(repo, "diff", f"{base}...{head}", "--no-color")
+    diff = _git(repo, "diff", f"{base}...{head}", "--no-color", *_pathspec(paths))
     if intent is None:
         intent = _git(repo, "log", "--format=%s", f"{base}..{head}").strip()
     return _build(diff, intent)
 
 
-def extract_from_working_tree(repo: Path, intent: str) -> IntentResult:
+def extract_from_working_tree(repo: Path, intent: str, paths: list[str] | None = None) -> IntentResult:
     """Uncommitted changes + explicitly stated intent (live/watch mode will use this)."""
-    diff = _git(repo, "diff", "HEAD", "--no-color")
+    diff = _git(repo, "diff", "HEAD", "--no-color", *_pathspec(paths))
     return _build(diff, intent)
 
 

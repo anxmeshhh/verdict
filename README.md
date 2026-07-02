@@ -18,6 +18,12 @@ Key finding from Phase 0: scenario quality was excellent (mostly 100%) on commit
 
 Beyond the doc's Phase 1 scope, also shipped: interactive `verdict` shell, append-only audit log (`.verdict/audit.jsonl`), token accounting on every LLM call, hybrid mode (`--hybrid`), `config get/set`, and a git pre-push hook (`verdict install-hook`) that verifies exactly the commits leaving the machine and blocks non-LOW pushes.
 
+**Post-Phase-1 additions (2026-07-03):**
+- **Pluggable LLM providers** — Ollama stays the default (local, private), but one `config set provider` away are OpenRouter, Groq, Gemini, OpenAI, or any OpenAI-compatible endpoint (`custom` + `base_url`, which is also the vLLM scale-out path). API keys are masked everywhere they surface — screen and audit log — and `.verdict/` is gitignored so they never reach a remote. Switching to a cloud provider prints an explicit privacy warning: diffs leave the machine. Validated end-to-end against a mock OpenAI-compatible server: health check, scenario generation, test generation, token accounting, sandbox execution, verdict.
+- **`verdict watch`** — live pre-deployment mode. Watches the working tree, knows the difference between "mid-generation" and "settled" (fingerprint debounce; `.verdict/` excluded so its own records never re-trigger it), and fires the full pipeline only after the dust settles. Intent comes from `--intent` or a live-editable `.verdict/INTENT.md`. Validated: activity → settle → verify → verdict → back to watching, no duplicate triggers.
+- **Full scope control** — `--path <file-or-folder>` (repeatable) on `run`, `plan`, and `watch`: verify exactly the files the developer chooses, nothing else.
+- **Human-readable history** — `verdict runs` (table of past verdicts), `verdict report [run-id]` (self-contained, shareable HTML page per run), and `'last'` works anywhere a run id does. The JSON records stay on disk as evidence; no human has to read them.
+
 **Next: Phase 2** — control & trust layer (config, override with logged reasons, Postgres data layer). Gate: can answer "why did it flag this" for any run, from stored data alone.
 
 ## Phased roadmap
@@ -56,8 +62,8 @@ Phase 1 is already a real, usable tool even if the project stopped there. Phase 
 
 | Layer | Technology |
 |---|---|
-| LLM runtime | Ollama (v1) → vLLM (scale-out later) |
-| Model | `qwen2.5-coder:7b` |
+| LLM runtime | Ollama (local default) or any OpenAI-compatible API — OpenRouter/Groq/Gemini/OpenAI/custom (vLLM at scale) |
+| Model | `qwen2.5-coder:7b` (default) |
 | API (post-Phase-1) | FastAPI (Python, async-native) |
 | Queue (Phase 3+) | Redis + Celery |
 | Sandbox | Docker (v1) → Firecracker (scale) |
@@ -69,12 +75,36 @@ Phase 1 is already a real, usable tool even if the project stopped there. Phase 
 | Observability | Prometheus + Grafana |
 | Distribution (Phase 5+) | Docker Compose + setup script + GitHub Action |
 
-## Local model setup
+## LLM setup
 
-Verdict's scenario generation step runs against a self-hosted [Ollama](https://ollama.com) instance — no cloud LLM API is used, by design.
+Local by default: Verdict's scenario generation runs against a self-hosted [Ollama](https://ollama.com) instance, so diffs never leave the machine.
 
 - Model: `qwen2.5-coder:7b`
 - Run `ollama serve` to start the local inference server before running Verdict.
+
+Prefer a hosted model? Bring your own API key — all providers go through one OpenAI-compatible transport:
+
+```
+verdict config set provider openrouter   # or: groq | gemini | openai | custom
+verdict config set model  <model-id>
+verdict config set api_key <key>         # or set VERDICT_API_KEY (masked in logs either way)
+verdict config set base_url <url>        # only for provider=custom (vLLM, LM Studio, ...)
+```
+
+Verdict warns loudly when a cloud provider is active: your diffs and intents leave the machine.
+
+## Everyday commands
+
+```
+verdict                          # branded interactive shell
+verdict run                      # verify HEAD (or --ref, --base, --intent for working tree)
+verdict run --path src/auth/     # verify only the files/folders you choose (repeatable)
+verdict watch                    # live mode: auto-verify when the working tree settles
+verdict runs                     # history of past verdicts as a table
+verdict report last              # shareable self-contained HTML page for a run
+verdict logs last                # full evidence: prompt, test code, sandbox output
+verdict install-hook             # pre-push gate: non-LOW verdicts block the push
+```
 
 ## License
 

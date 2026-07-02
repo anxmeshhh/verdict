@@ -18,12 +18,17 @@ CONFIG_FILENAME = "config.json"
 
 DEFAULT_MODEL = "qwen2.5-coder:7b"
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
+DEFAULT_PROVIDER = "ollama"
 
 
 @dataclass
 class Config:
     model: str = DEFAULT_MODEL
     ollama_url: str = DEFAULT_OLLAMA_URL
+    # "ollama" (local, default) or an API provider: openrouter | groq | gemini | openai | custom
+    provider: str = DEFAULT_PROVIDER
+    api_key: str = ""  # for API providers; VERDICT_API_KEY env var takes precedence
+    base_url: str = ""  # override endpoint (required for provider=custom, e.g. a vLLM server)
 
 
 def config_dir(root: Path | None = None) -> Path:
@@ -43,7 +48,9 @@ def load_config(root: Path | None = None) -> Config:
     if not path.exists():
         return Config()
     data = json.loads(path.read_text(encoding="utf-8"))
-    return Config(**{**asdict(Config()), **data})
+    known = asdict(Config())
+    merged = {**known, **{k: v for k, v in data.items() if k in known}}
+    return Config(**merged)
 
 
 def save_config(config: Config, root: Path | None = None) -> Path:

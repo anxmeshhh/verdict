@@ -10,7 +10,8 @@ audit trail and is stored as evidence alongside the run.
 import re
 from dataclasses import dataclass
 
-from verdict import ollama
+from verdict import llm
+from verdict.config import Config
 from verdict.generator import GenerationError, Scenario
 from verdict.intent import IntentResult
 
@@ -87,8 +88,7 @@ MAX_ATTEMPTS = 3
 def generate_test_code(
     scenario: Scenario,
     intent_result: IntentResult,
-    model: str,
-    ollama_url: str,
+    config: Config,
 ) -> GeneratedTest:
     diff = intent_result.diff
     if len(diff) > MAX_DIFF_CHARS:
@@ -119,8 +119,8 @@ def generate_test_code(
                 " or defined in your script."
             )
         try:
-            resp = ollama.call(retry_prompt, model, ollama_url)
-        except ollama.OllamaDown as e:
+            resp = llm.call(retry_prompt, config)
+        except llm.LLMDown as e:
             raise GenerationError(str(e), prompt=prompt) from e
         code = _strip_fences(resp.text)
         prompt_tokens += resp.prompt_tokens

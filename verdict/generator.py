@@ -11,7 +11,8 @@ This is the ONE bounded LLM step in the entire pipeline.
 import json
 from dataclasses import dataclass
 
-from verdict import ollama
+from verdict import llm
+from verdict.config import Config
 from verdict.intent import IntentResult
 
 MAX_DIFF_CHARS = 24_000  # keep well inside the 7B model's context window
@@ -86,7 +87,7 @@ def _parse_scenarios(raw: str) -> list[Scenario]:
     return scenarios
 
 
-def generate(intent_result: IntentResult, model: str, ollama_url: str) -> GenerationResult:
+def generate(intent_result: IntentResult, config: Config) -> GenerationResult:
     """Generate scenarios for a clear intent. Refuses vague intent - silence beats a wrong verdict."""
     if intent_result.vague:
         raise GenerationError(
@@ -103,8 +104,8 @@ def generate(intent_result: IntentResult, model: str, ollama_url: str) -> Genera
     llm_duration = 0.0
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            resp = ollama.call(prompt, model, ollama_url, json_format=True)
-        except ollama.OllamaDown as e:
+            resp = llm.call(prompt, config, json_format=True)
+        except llm.LLMDown as e:
             raise GenerationError(str(e), prompt=prompt) from e
         raw = resp.text
         prompt_tokens += resp.prompt_tokens
@@ -114,7 +115,7 @@ def generate(intent_result: IntentResult, model: str, ollama_url: str) -> Genera
             scenarios = _parse_scenarios(raw)
             return GenerationResult(
                 scenarios=scenarios,
-                model=model,
+                model=llm.model_id(config),
                 prompt=prompt,
                 raw_response=raw,
                 attempts=attempt,
