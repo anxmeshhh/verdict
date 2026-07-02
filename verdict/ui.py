@@ -156,10 +156,18 @@ def verdict_panel(record: dict) -> None:
 
     console.print()
     console.print(Panel(body, title="[bold cyan]VERDICT[/]", border_style="cyan", padding=(1, 2)))
-    console.print(
+    footer = (
         f"  [dim]run[/] [bold]{record['run_id']}[/]"
-        f"   [dim]full evidence:[/] [cyan]verdict logs {record['run_id']}[/]\n"
+        f"   [dim]full evidence:[/] [cyan]verdict logs {record['run_id']}[/]"
     )
+    tokens = record.get("tokens") or {}
+    if tokens.get("llm_calls"):
+        footer += (
+            f"\n  [dim]llm[/] {tokens['llm_calls']} call(s)"
+            f"   [dim]tokens[/] {tokens['prompt_tokens']:,} in / {tokens['output_tokens']:,} out"
+            f"   [dim]llm time[/] {tokens['llm_seconds']}s"
+        )
+    console.print(footer + "\n")
 
 
 def show_test_code(code: str) -> None:

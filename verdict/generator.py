@@ -9,10 +9,9 @@ Output: GenerationResult - scenarios plus the full audit trail
 This is the ONE bounded LLM step in the entire pipeline.
 """
 import json
-import urllib.error
-import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
+from verdict import ollama
 from verdict.intent import IntentResult
 
 MAX_DIFF_CHARS = 24_000  # keep well inside the 7B model's context window
@@ -50,6 +49,9 @@ class GenerationResult:
     raw_response: str
     attempts: int = 1
     source: str = "llm"  # vs "manual" from Module 3b
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    llm_duration_s: float = 0.0
 
 
 @dataclass
@@ -67,26 +69,6 @@ def build_prompt(intent_result: IntentResult) -> str:
     if len(diff) > MAX_DIFF_CHARS:
         diff = diff[:MAX_DIFF_CHARS] + "\n... (diff truncated)"
     return PROMPT_TEMPLATE.format(intent=intent_result.intent, diff=diff)
-
-
-def _call_ollama(ollama_url: str, model: str, prompt: str) -> str:
-    payload = json.dumps(
-        {
-            "model": model,
-            "prompt": prompt,
-            "format": "json",
-            "stream": False,
-            "options": {"temperature": 0.2},
-        }
-    ).encode("utf-8")
-    req = urllib.request.Request(
-        f"{ollama_url}/api/generate",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=GENERATION_TIMEOUT) as resp:
-        body = json.loads(resp.read().decode("utf-8"))
-    return body["response"]
 
 
 def _parse_scenarios(raw: str) -> list[Scenario]:
@@ -117,9 +99,18 @@ def generate(intent_result: IntentResult, model: str, ollama_url: str) -> Genera
     prompt = build_prompt(intent_result)
     last_error = ""
     raw = ""
+    prompt_tokens = output_tokens = 0
+    llm_duration = 0.0
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            raw = _call_ollama(ollama_url, model, prompt)
+            resp = ollama.call(prompt, model, ollama_url, json_format=True)
+        except ollama.OllamaDown as e:
+            raise GenerationError(str(e), prompt=prompt) from e
+        raw = resp.text
+        prompt_tokens += resp.prompt_tokens
+        output_tokens += resp.output_tokens
+        llm_duration += resp.duration_s
+        try:
             scenarios = _parse_scenarios(raw)
             return GenerationResult(
                 scenarios=scenarios,
@@ -127,9 +118,10 @@ def generate(intent_result: IntentResult, model: str, ollama_url: str) -> Genera
                 prompt=prompt,
                 raw_response=raw,
                 attempts=attempt,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+                llm_duration_s=round(llm_duration, 2),
             )
-        except (urllib.error.URLError, OSError) as e:
-            raise GenerationError(f"Ollama unreachable during generation: {e}", prompt=prompt) from e
         except (ValueError, KeyError, json.JSONDecodeError) as e:
             last_error = str(e)
 

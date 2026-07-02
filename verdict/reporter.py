@@ -37,9 +37,11 @@ def build_record(
     results: list[SandboxResult],
     risk: RiskReport,
     model: str,
+    tokens: dict | None = None,
 ) -> dict:
     return {
         "run_id": run_id,
+        "status": "completed",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "intent": intent_result.intent,
@@ -51,7 +53,36 @@ def build_record(
         "generation_raw_response": generation.raw_response,
         "results": [asdict(r) for r in results],
         "risk": asdict(risk),
+        "tokens": tokens or {},
     }
+
+
+def build_incomplete_record(
+    run_id: str,
+    status: str,  # "errored" | "skipped"
+    stage: str,
+    reason: str,
+    model: str,
+    intent_result: IntentResult | None = None,
+    tokens: dict | None = None,
+) -> dict:
+    """A run that never reached a verdict still leaves evidence. An errored
+    or skipped run that vanishes is a hole in the audit trail."""
+    record = {
+        "run_id": run_id,
+        "status": status,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "model": model,
+        "failed_stage": stage,
+        "reason": reason,
+        "tokens": tokens or {},
+    }
+    if intent_result is not None:
+        record["intent"] = intent_result.intent
+        record["vague"] = intent_result.vague
+        record["diff_lines"] = intent_result.diff.count("\n")
+        record["diff"] = intent_result.diff
+    return record
 
 
 def save_run(record: dict, root: Path | None = None) -> Path:

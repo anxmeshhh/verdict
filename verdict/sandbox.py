@@ -117,6 +117,11 @@ def run_test(
                 status = "passed"
             elif proc.returncode == UNCHECKABLE_EXIT:
                 status = "uncertain"
+            elif proc.returncode in (125, 126, 127, 137):
+                # 125-127: docker/exec-level failure. 137: SIGKILL - the memory
+                # cap killed the container. Infrastructure death is not evidence
+                # against the change - never let it masquerade as FAILED.
+                status = "error"
             elif _looks_like_broken_test(proc.stderr):
                 # The CHECK crashed (wrong API, bad import) - that is not
                 # evidence against the change. Say so, don't fake a failure.

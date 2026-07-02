@@ -7,12 +7,10 @@ scenario (English) becomes a self-contained Python script that exits 0 when
 the scenario holds and non-zero when it does not. The script is part of the
 audit trail and is stored as evidence alongside the run.
 """
-import json
 import re
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 
+from verdict import ollama
 from verdict.generator import GenerationError, Scenario
 from verdict.intent import IntentResult
 
@@ -55,6 +53,9 @@ class GeneratedTest:
     code: str
     prompt: str
     attempts: int = 1
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    llm_duration_s: float = 0.0
 
 
 def _strip_fences(text: str) -> str:
@@ -83,28 +84,6 @@ def lint_test_code(code: str) -> list[str]:
 MAX_ATTEMPTS = 3
 
 
-def _call_model(prompt: str, model: str, ollama_url: str) -> str:
-    payload = json.dumps(
-        {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0.2},
-        }
-    ).encode("utf-8")
-    req = urllib.request.Request(
-        f"{ollama_url}/api/generate",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=GENERATION_TIMEOUT) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError) as e:
-        raise GenerationError(f"Ollama unreachable during test generation: {e}", prompt=prompt) from e
-    return _strip_fences(body["response"])
-
-
 def generate_test_code(
     scenario: Scenario,
     intent_result: IntentResult,
@@ -123,6 +102,9 @@ def generate_test_code(
     )
 
     problems: list[str] = []
+    prompt_tokens = output_tokens = 0
+    llm_duration = 0.0
+    code = ""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         retry_prompt = prompt
         if problems:
@@ -136,13 +118,28 @@ def generate_test_code(
                 " stop using it. Every single name you reference must be imported"
                 " or defined in your script."
             )
-        code = _call_model(retry_prompt, model, ollama_url)
+        try:
+            resp = ollama.call(retry_prompt, model, ollama_url)
+        except ollama.OllamaDown as e:
+            raise GenerationError(str(e), prompt=prompt) from e
+        code = _strip_fences(resp.text)
+        prompt_tokens += resp.prompt_tokens
+        output_tokens += resp.output_tokens
+        llm_duration += resp.duration_s
         if not code.strip():
             problems = ["returned empty code"]
             continue
         problems = lint_test_code(code)
         if not problems:
-            return GeneratedTest(scenario=scenario, code=code, prompt=prompt, attempts=attempt)
+            return GeneratedTest(
+                scenario=scenario,
+                code=code,
+                prompt=prompt,
+                attempts=attempt,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+                llm_duration_s=round(llm_duration, 2),
+            )
 
     raise GenerationError(
         f"generated test code still broken after {MAX_ATTEMPTS} attempts: {'; '.join(problems[:3])}",
