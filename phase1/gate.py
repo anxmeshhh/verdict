@@ -68,6 +68,9 @@ def main() -> None:
             "run_id": record.get("run_id") if record else None,
             "tokens": record.get("tokens") if record else None,
         }
+        if crashed:
+            # keep the evidence - a crash we can't diagnose is a crash we refix blind
+            outcome["crash_output_tail"] = output[-3000:]
         outcomes.append(outcome)
         tag = "CRASH" if crashed else status.upper()
         print(f"        -> {tag}" + (f" ({risk})" if risk else "") + f"  exit={proc.returncode}  {duration}s", flush=True)

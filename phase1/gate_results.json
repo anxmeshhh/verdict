@@ -1,8 +1,8 @@
 {
   "total": 10,
   "completed_verdicts": 9,
-  "handled_aborts": 1,
-  "crashes": 0,
+  "handled_aborts": 0,
+  "crashes": 1,
   "gate": "FAIL",
   "outcomes": [
     {
@@ -11,13 +11,13 @@
       "crashed": false,
       "record_status": "completed",
       "risk": "LOW",
-      "duration_s": 91.5,
-      "run_id": "run_9bf5f9",
+      "duration_s": 90.4,
+      "run_id": "run_f32818",
       "tokens": {
         "llm_calls": 3,
-        "prompt_tokens": 10342,
-        "output_tokens": 1259,
-        "llm_seconds": 75.29
+        "prompt_tokens": 10310,
+        "output_tokens": 1324,
+        "llm_seconds": 74.84
       }
     },
     {
@@ -26,28 +26,28 @@
       "crashed": false,
       "record_status": "completed",
       "risk": "HIGH",
-      "duration_s": 51.5,
-      "run_id": "run_a417e2",
+      "duration_s": 48.6,
+      "run_id": "run_c5c3cc",
       "tokens": {
         "llm_calls": 3,
-        "prompt_tokens": 4638,
-        "output_tokens": 589,
-        "llm_seconds": 36.87
+        "prompt_tokens": 4637,
+        "output_tokens": 565,
+        "llm_seconds": 33.81
       }
     },
     {
       "ref": "203bc22",
       "exit_code": 1,
       "crashed": false,
-      "record_status": "errored",
-      "risk": null,
-      "duration_s": 13.6,
-      "run_id": "run_7a172d",
+      "record_status": "completed",
+      "risk": "UNVERIFIED",
+      "duration_s": 39.7,
+      "run_id": "run_b3a702",
       "tokens": {
-        "llm_calls": 1,
-        "prompt_tokens": 1477,
-        "output_tokens": 171,
-        "llm_seconds": 10.94
+        "llm_calls": 2,
+        "prompt_tokens": 3089,
+        "output_tokens": 471,
+        "llm_seconds": 27.61
       }
     },
     {
@@ -56,13 +56,13 @@
       "crashed": false,
       "record_status": "completed",
       "risk": "HIGH",
-      "duration_s": 46.2,
-      "run_id": "run_fa46a3",
+      "duration_s": 79.2,
+      "run_id": "run_793744",
       "tokens": {
         "llm_calls": 3,
         "prompt_tokens": 3657,
-        "output_tokens": 499,
-        "llm_seconds": 31.52
+        "output_tokens": 712,
+        "llm_seconds": 57.9
       }
     },
     {
@@ -71,28 +71,28 @@
       "crashed": false,
       "record_status": "completed",
       "risk": "LOW",
-      "duration_s": 51.7,
-      "run_id": "run_2f6934",
+      "duration_s": 78.7,
+      "run_id": "run_a422e4",
       "tokens": {
         "llm_calls": 3,
-        "prompt_tokens": 4685,
-        "output_tokens": 613,
-        "llm_seconds": 36.77
+        "prompt_tokens": 6353,
+        "output_tokens": 774,
+        "llm_seconds": 61.44
       }
     },
     {
       "ref": "b322d43",
-      "exit_code": 1,
+      "exit_code": 0,
       "crashed": false,
       "record_status": "completed",
-      "risk": "UNVERIFIED",
-      "duration_s": 57.1,
-      "run_id": "run_0f2765",
+      "risk": "LOW",
+      "duration_s": 50.0,
+      "run_id": "run_84700a",
       "tokens": {
         "llm_calls": 3,
-        "prompt_tokens": 14097,
-        "output_tokens": 541,
-        "llm_seconds": 42.17
+        "prompt_tokens": 14089,
+        "output_tokens": 496,
+        "llm_seconds": 35.7
       }
     },
     {
@@ -101,13 +101,13 @@
       "crashed": false,
       "record_status": "completed",
       "risk": "HIGH",
-      "duration_s": 52.6,
-      "run_id": "run_b857fd",
+      "duration_s": 53.8,
+      "run_id": "run_00504e",
       "tokens": {
         "llm_calls": 3,
-        "prompt_tokens": 3302,
-        "output_tokens": 631,
-        "llm_seconds": 37.4
+        "prompt_tokens": 3311,
+        "output_tokens": 715,
+        "llm_seconds": 39.12
       }
     },
     {
@@ -116,28 +116,28 @@
       "crashed": false,
       "record_status": "completed",
       "risk": "UNVERIFIED",
-      "duration_s": 65.5,
-      "run_id": "run_4584e8",
+      "duration_s": 133.2,
+      "run_id": "run_ca6c1f",
       "tokens": {
         "llm_calls": 3,
-        "prompt_tokens": 3986,
-        "output_tokens": 949,
-        "llm_seconds": 50.32
+        "prompt_tokens": 6978,
+        "output_tokens": 2390,
+        "llm_seconds": 118.4
       }
     },
     {
       "ref": "7f6df4d",
       "exit_code": 1,
-      "crashed": false,
+      "crashed": true,
       "record_status": "completed",
-      "risk": "HIGH",
-      "duration_s": 65.4,
-      "run_id": "run_aa40a5",
+      "risk": "LOW",
+      "duration_s": 75.4,
+      "run_id": "run_72b01d",
       "tokens": {
         "llm_calls": 3,
-        "prompt_tokens": 6150,
-        "output_tokens": 774,
-        "llm_seconds": 49.19
+        "prompt_tokens": 8200,
+        "output_tokens": 1061,
+        "llm_seconds": 59.7
       }
     },
     {
@@ -146,13 +146,13 @@
       "crashed": false,
       "record_status": "completed",
       "risk": "HIGH",
-      "duration_s": 50.7,
-      "run_id": "run_3e89d5",
+      "duration_s": 370.6,
+      "run_id": "run_02589d",
       "tokens": {
         "llm_calls": 3,
-        "prompt_tokens": 6150,
-        "output_tokens": 489,
-        "llm_seconds": 33.55
+        "prompt_tokens": 8200,
+        "output_tokens": 870,
+        "llm_seconds": 355.32
       }
     }
   ]

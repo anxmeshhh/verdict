@@ -1,9 +1,19 @@
 """Module 8 - CLI. The full pipeline as `verdict <command>` with staged visibility."""
 import shlex
+import sys
 from pathlib import Path
 
 import click
 import typer
+
+# Output must never kill a verdict: LLM-generated tests can print any unicode,
+# and Windows pipes default to cp1252. Replace unencodable characters instead
+# of crashing after the run already succeeded.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except (AttributeError, OSError):
+        pass
 
 from dataclasses import asdict
 
