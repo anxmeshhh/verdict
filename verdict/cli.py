@@ -5,10 +5,13 @@ from pathlib import Path
 import click
 import typer
 
-from verdict import audit, ui
+from dataclasses import asdict
+
+from verdict import audit, hooks, ui
 from verdict.authoring import AuthoringError, load_scenarios, write_template
 from verdict.config import Config, check_ollama, is_initialized, load_config, save_config
 from verdict.generator import GenerationError, generate
+from verdict.hybrid import merge
 from verdict.intent import GitError, IntentResult, extract_from_commit, extract_from_range, extract_from_working_tree
 from verdict.reporter import build_incomplete_record, build_record, format_json, load_run, new_run_id, save_run
 from verdict.sandbox import SandboxError, check_docker, run_all
@@ -186,7 +189,7 @@ def plan(
         if v.traceable:
             ui.scenario_line(v.scenario.name, v.scenario.description)
         else:
-            ui.console.print(f"      [red]✗[/] [dim strike]{v.scenario.name}[/] [red dim]{v.reason[:70]}[/]")
+            ui.console.print(f"      [red]{ui.CROSS}[/] [dim strike]{v.scenario.name}[/] [red dim]{v.reason[:70]}[/]")
 
 
 @app.command()
@@ -195,6 +198,7 @@ def run(
     base: str = typer.Option(None, help="Verify the range base..HEAD instead of one commit"),
     intent: str = typer.Option(None, help="Explicit intent (required for uncommitted changes)"),
     scenarios_file: Path = typer.Option(None, "--scenarios", help="Run developer-authored scenarios (Module 3b)"),
+    hybrid: bool = typer.Option(False, "--hybrid", help="Combine generated + manual scenarios, deduped (needs --scenarios)"),
     max_scenarios: int = typer.Option(4, help="Cap on scenarios executed per run"),
     timeout: int = typer.Option(300, help="Per-scenario sandbox timeout (seconds)"),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
@@ -202,7 +206,10 @@ def run(
     """The full pipeline: intent -> scenarios -> validate -> sandbox -> score -> report."""
     repo = Path.cwd()
     config = load_config()
-    mode = "manual" if scenarios_file else "autonomous"
+    if hybrid and scenarios_file is None:
+        ui.stage_fail("config", "--hybrid needs --scenarios <file> to know which manual scenarios to merge")
+        raise typer.Exit(code=1)
+    mode = "hybrid" if hybrid else ("manual" if scenarios_file else "autonomous")
     run_id = new_run_id()
     intent_result: IntentResult | None = None
     tokens = {"llm_calls": 0, "prompt_tokens": 0, "output_tokens": 0, "llm_seconds": 0.0}
@@ -222,6 +229,27 @@ def run(
         audit.append(f"run_{status}", {"stage": stage, "reason": message}, run_id=run_id, root=repo)
         ui.stage_fail(stage, message)
         ui.console.print(f"  [dim]recorded as {status}: run {run_id}[/]")
+        raise typer.Exit(code=1)
+
+    def _finish_unverified(stage: str, note: str, generation) -> None:
+        """The pipeline completed but produced zero conclusive evidence.
+        That is a verdict (UNVERIFIED), not an infrastructure error."""
+        risk = score([])
+        risk.reasons.insert(0, f"{stage}: {note}")
+        ui.stage_ok("score", risk.level)
+        record = build_record(run_id, intent_result, generation, [], risk, config.model, tokens)
+        record["note"] = note
+        save_run(record, repo)
+        audit.append(
+            "run_completed",
+            {"risk": risk.level, "passed": 0, "failed": 0, "inconclusive": 0, "note": note, "tokens": tokens},
+            run_id=run_id,
+            root=repo,
+        )
+        if as_json:
+            typer.echo(format_json(record))
+        else:
+            ui.verdict_panel(record)
         raise typer.Exit(code=1)
 
     audit.append(
@@ -256,8 +284,32 @@ def run(
         _abort("intent", "diff is empty - nothing to verify", status="skipped")
     ui.stage_ok("intent", f'"{intent_result.intent.splitlines()[0][:70]}"')
 
-    # [3/6] scenarios (generate or load)
-    if scenarios_file:
+    # [3/6] scenarios (generate, load, or hybrid-merge)
+    if scenarios_file and hybrid:
+        try:
+            manual_gen = load_scenarios(scenarios_file)
+        except AuthoringError as e:
+            _abort("scenario-load", str(e))
+        ui.stage_ok("scenario-load", f"{len(manual_gen.scenarios)} manual scenario(s) from {scenarios_file.name}")
+        if intent_result.vague:
+            ui.stage_warn("scenario-gen", f"intent too vague to generate ({intent_result.vague_reason}) - manual only")
+            generation = manual_gen
+        else:
+            try:
+                with ui.working(f"asking {config.model} for scenarios..."):
+                    llm_gen = generate(intent_result, config.model, config.ollama_url)
+            except GenerationError as e:
+                _abort("scenario-gen", str(e))
+            _track(llm_gen.prompt_tokens, llm_gen.output_tokens, llm_gen.llm_duration_s)
+            merged = merge(llm_gen.scenarios, manual_gen.scenarios)
+            generation = llm_gen
+            generation.scenarios = merged.scenarios
+            generation.source = "hybrid"
+            detail = f"{len(merged.scenarios)} total after merge"
+            if merged.dropped_duplicates:
+                detail += f" ({len(merged.dropped_duplicates)} generated duplicate(s) shadowed by manual)"
+            ui.stage_ok("scenario-gen", detail)
+    elif scenarios_file:
         try:
             generation = load_scenarios(scenarios_file)
         except AuthoringError as e:
@@ -286,7 +338,10 @@ def run(
     kept = [v.scenario for v in validations if v.traceable]
     dropped = [v for v in validations if not v.traceable]
     if not kept:
-        _abort("validate", "no scenario is traceable to this diff - nothing trustworthy to run")
+        ui.stage_warn("validate", "0 scenarios traceable to this diff")
+        for v in dropped:
+            ui.console.print(f"      [red]{ui.CROSS}[/] [dim strike]{v.scenario.name}[/] [red dim]{v.reason[:70]}[/]")
+        _finish_unverified("validate", "no generated scenario was traceable to this diff", generation)
     ui.stage_ok("validate", f"{len(kept)}/{len(validations)} traceable to the diff")
     for v in dropped:
         ui.console.print(f"      [red]x[/] [dim strike]{v.scenario.name}[/] [red dim]{v.reason[:70]}[/]")
@@ -307,7 +362,7 @@ def run(
             ui.stage_warn("testgen", f"{s.name}: could not produce a sound check - skipped")
 
     if not tests:
-        _abort("sandbox", "no scenario produced runnable test code - verdict is UNVERIFIED")
+        _finish_unverified("testgen", "no scenario produced runnable test code", generation)
 
     try:
         with ui.working("running scenarios in sandbox containers..."):
@@ -344,6 +399,60 @@ def run(
     else:
         ui.verdict_panel(record)
     raise typer.Exit(code=0 if risk.level == "LOW" else 1)
+
+
+config_app = typer.Typer(add_completion=False, help="Read or change verdict settings for this repo.")
+app.add_typer(config_app, name="config")
+
+_CONFIG_KEYS = ("model", "ollama_url")
+
+
+@config_app.command("get")
+def config_get(key: str = typer.Argument(None, help="Setting to read (omit for all)")):
+    """Show current settings."""
+    config = load_config()
+    if key is None:
+        for k in _CONFIG_KEYS:
+            ui.console.print(f"  [cyan]{k}[/] = {getattr(config, k)}")
+        return
+    if key not in _CONFIG_KEYS:
+        _fail("config", f"unknown key '{key}' (valid: {', '.join(_CONFIG_KEYS)})")
+    ui.console.print(f"  [cyan]{key}[/] = {getattr(config, key)}")
+
+
+@config_app.command("set")
+def config_set(key: str, value: str):
+    """Change a setting - the change is audit-logged."""
+    if key not in _CONFIG_KEYS:
+        _fail("config", f"unknown key '{key}' (valid: {', '.join(_CONFIG_KEYS)})")
+    config = load_config()
+    before = asdict(config)
+    setattr(config, key, value)
+    save_config(config)
+    audit.append("config_change", {"before": before, "after": asdict(config)})
+    ui.stage_ok("config", f"{key} = {value}")
+
+
+@app.command("install-hook")
+def install_hook():
+    """Install the git pre-push hook: every push is verified before it leaves this machine."""
+    try:
+        path = hooks.install(Path.cwd())
+    except hooks.HookError as e:
+        _fail("hook", str(e))
+    ui.stage_ok("hook", f"pre-push hook installed at {path}")
+    ui.console.print("      [dim]every push now runs verdict on exactly the commits being pushed;[/]")
+    ui.console.print("      [dim]non-LOW verdicts block the push (bypass: git push --no-verify)[/]")
+
+
+@app.command("uninstall-hook")
+def uninstall_hook():
+    """Remove the verdict pre-push hook (refuses to touch hooks it didn't install)."""
+    try:
+        hooks.uninstall(Path.cwd())
+    except hooks.HookError as e:
+        _fail("hook", str(e))
+    ui.stage_ok("hook", "pre-push hook removed")
 
 
 @app.command()
