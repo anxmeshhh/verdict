@@ -14,17 +14,19 @@ Not agentic, by design: Verdict is a **deterministic pipeline with exactly one b
 
 Key finding from Phase 0: scenario quality was excellent (mostly 100%) on commits with clear, descriptive intent, and degraded badly on vague/placeholder commit messages (e.g. "fix in the rapidapi or ytdlp"). This means **Module 2 (Intent Extractor) needs real vagueness detection**, not just pass-through — a design requirement discovered empirically, not assumed upfront.
 
-**Now building: Phase 1** — core pipeline as a CLI tool, single run, no queue/DB/UI. Gate: runs cleanly end-to-end on a real repo, 10 times in a row, no crashes. Building module-by-module, each one fully working before starting the next (not scaffolding everything up front).
+**Phase 1: PASSED.** Full pipeline as a CLI tool — all 8 modules built and verified module-by-module. Gate evidence in [`phase1/gate_results.json`](./phase1/gate_results.json): 10/10 end-to-end runs across 10 different real commits, zero crashes. The gate failed twice first and earned its keep both times — attempt 1 caught wrong abort semantics (zero-evidence runs now finish as recorded UNVERIFIED verdicts) and a Windows console crash; attempt 2 caught a nondeterministic crash when LLM-generated tests print unicode through a cp1252 pipe (fixed at the stream level: output can never kill a verdict).
 
-Docker is available on the dev machine for Module 5 (Sandbox Runner).
+Beyond the doc's Phase 1 scope, also shipped: interactive `verdict` shell, append-only audit log (`.verdict/audit.jsonl`), token accounting on every LLM call, hybrid mode (`--hybrid`), `config get/set`, and a git pre-push hook (`verdict install-hook`) that verifies exactly the commits leaving the machine and blocks non-LOW pushes.
+
+**Next: Phase 2** — control & trust layer (config, override with logged reasons, Postgres data layer). Gate: can answer "why did it flag this" for any run, from stored data alone.
 
 ## Phased roadmap
 
 | Phase | Deliverable | Gate to proceed |
 |---|---|---|
 | 0 | ✅ Offline precision validation, no infra | Precision > 70% |
-| 1 | 🔨 Core pipeline as a CLI tool | Runs cleanly end-to-end, 10x in a row, no crashes |
-| 2 | Control & trust layer — config, override, logs, Postgres | Can answer "why did it flag this" from stored data alone |
+| 1 | ✅ Core pipeline as a CLI tool | Runs cleanly end-to-end, 10x in a row, no crashes |
+| 2 | 🔨 Control & trust layer — config, override, logs, Postgres | Can answer "why did it flag this" from stored data alone |
 | 3 | Concurrency & reliability — Redis queue, worker pool, health checks | 5 concurrent runs, no dropped/duplicated jobs |
 | 4 | GitHub integration — webhook, Checks API, Action wrapper | A real PR gets an accurate check, unaided |
 | 5 | Packaging — docker-compose, setup script | A stranger clones it and gets a working run in <10 min |
