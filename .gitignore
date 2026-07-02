@@ -1,0 +1,25 @@
+# Chat/reference screenshots (not project assets)
+image.png
+image copy.png
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+.next/
+
+# Env / secrets
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
