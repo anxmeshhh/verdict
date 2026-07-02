@@ -1,0 +1,126 @@
+{
+  "ee4ba57e::test_stale_url_resolution": true,
+  "ee4ba57e::test_resume_on_pause": true,
+  "ee4ba57e::test_unsupported_format_replay": true,
+  "ee4ba57e::test_session_expiration_recovery": true,
+
+  "fe9c8bb0::initial_load_error_retry": true,
+  "fe9c8bb0::different_error_types_retry": true,
+  "fe9c8bb0::cache_bust_failure_propagation": true,
+  "fe9c8bb0::multiple_load_attempts": false,
+
+  "84579fdf::host_play_song": true,
+  "84579fdf::non_host_play_song": true,
+  "84579fdf::host_queue_song": true,
+  "84579fdf::non_host_queue_song": true,
+
+  "f44410f5::track_total_music_listening_minutes": true,
+  "f44410f5::update_dashboard_stat_card": true,
+  "f44410f5::handle_page_unload": true,
+  "f44410f5::incremental_time_tracking": true,
+
+  "894dc956::initial_load_not_supported": true,
+  "894dc956::seek_after_cache_bust": true,
+  "894dc956::retry_from_zero_on_seek_failure": true,
+  "894dc956::no_cache_bust_on_supported_load": true,
+
+  "aa07f6c4::host_can_update_room": true,
+  "aa07f6c4::member_can_only_update_status_and_queue": true,
+  "aa07f6c4::non_host_cannot_change_tracks": true,
+  "aa07f6c4::host_sees_special_indicator": true,
+
+  "888a7e37::resolve_metadata_only": true,
+  "888a7e37::stream_supports_retry_cache_bust": true,
+  "888a7e37::short_ttl_for_rapidapi_urls": true,
+  "888a7e37::force_refresh_token_on_stream_request": true,
+
+  "9b351132::rapidapi_success": false,
+  "9b351132::rapidapi_failure_ytdlp_success": false,
+  "9b351132::rapidapi_failure_ytdlp_failure": false,
+  "9b351132::proxy_usage": false,
+
+  "ff412d3e::test_ytdlp_source_set": true,
+  "ff412d3e::test_existing_rapidapi_source": true,
+  "ff412d3e::test_no_source_key": true,
+  "ff412d3e::test_cache_update": true,
+
+  "b3ccb71d::ResolveStreamUrlReturnsProxyUrl": false,
+  "b3ccb71d::GetSmartStreamUrlUsesProxy": true,
+  "b3ccb71d::ImportSpotifyPlaylistDoesNotUseDirectUrls": false,
+  "b3ccb71d::SanitizeFirestoreDataHandlesVariousTypes": false,
+
+  "f1c16cb4::test_rapidapi_stream_resolution": true,
+  "f1c16cb4::test_fallback_to_yt_dlp": true,
+  "f1c16cb4::test_cache_resolution": true,
+  "f1c16cb4::test_error_handling": true,
+
+  "f0265e96::test_rapidapi_integration_removed": true,
+  "f0265e96::test_yt_dlp_fallback_used": true,
+  "f0265e96::test_cache_resolution": true,
+  "f0265e96::test_error_logging": false,
+
+  "cb9a5cfb::android_chrome_autoplay_test": true,
+  "cb9a5cfb::audio_playback_error_handling": true,
+  "cb9a5cfb::room_sync_play_pause_test": true,
+  "cb9a5cfb::volume_control_test": false,
+
+  "6b3ca8db::test_mp4_stream_priority": true,
+  "6b3ca8db::test_cross_origin_removed": true,
+  "6b3ca8db::test_fallback_to_webm": true,
+  "6b3ca8db::test_high_bitrate_mp4_selected": true,
+
+  "d8df6da9::verify_popup_auth_flow": true,
+  "d8df6da9::check_no_redirect_on_login": true,
+  "d8df6da9::test_auth_state_persistence": true,
+  "d8df6da9::verify_error_handling": true,
+
+  "2778f0d4::test_stream_load_timeout": true,
+  "2778f0d4::test_slow_mirror_behavior": true,
+  "2778f0d4::test_seek_with_timeout": true,
+  "2778f0d4::test_consecutive_loads": true,
+
+  "60269d87::test_request_with_few_headers": false,
+  "60269d87::test_request_with_many_sec_headers": true,
+  "60269d87::test_request_with_large_path": true,
+  "60269d87::test_request_with_max_headers": false,
+
+  "895f0ebe::range_request_failure": true,
+  "895f0ebe::initial_load_success": true,
+  "895f0ebe::seek_failure_then_retry": true,
+  "895f0ebe::no_seek_no_retry": true,
+
+  "b84a9f53::verify_csp_for_robotilab_online": true,
+  "b84a9f53::verify_csp_for_cobalt_tools": true,
+  "b84a9f53::test_audio_mirror_with_robotilab_online": true,
+  "b84a9f53::test_audio_mirror_with_cobalt_tools": true,
+
+  "da210f9b::ImportCheck": true,
+  "da210f9b::EnvironmentVariableSet": true,
+  "da210f9b::NoRuntimeError": true,
+  "da210f9b::EnvironmentVariablePersistence": false,
+
+  "3e388c4a::verify_gevent_replacement": true,
+  "3e388c4a::check_gunicorn_config": true,
+  "3e388c4a::test_async_streaming_support": true,
+  "3e388c4a::recursion_error_resolution": true,
+
+  "544ead19::verify_ssl_verification_disabled": false,
+  "544ead19::test_firebase_token_verification": true,
+  "544ead19::check_proxy_usage": true,
+  "544ead19::validate_request_patching": false,
+
+  "7aa3a110::test_ssl_patch": true,
+  "7aa3a110::test_request_method": true,
+  "7aa3a110::test_proxy_usage": true,
+  "7aa3a110::test_ssl_patch_order": true,
+
+  "f725ba00::test_ssl_patch": true,
+  "f725ba00::test_infinite_recursion_prevention": true,
+  "f725ba00::test_request_method_overrides": true,
+  "f725ba00::test_session_level_patch": true,
+
+  "8e1d9fd0::force_refresh_token_on_auth_change": true,
+  "8e1d9fd0::token_refresh_timeout": true,
+  "8e1d9fd0::unauthenticated_user_rejection": true,
+  "8e1d9fd0::token_not_authenticated_error": true
+}
