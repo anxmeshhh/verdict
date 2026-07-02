@@ -5,6 +5,7 @@ description = "Independent, self-hosted pre-deployment verification for AI-gener
 requires-python = ">=3.10"
 dependencies = [
     "typer>=0.19",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
