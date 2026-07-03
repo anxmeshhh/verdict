@@ -60,6 +60,38 @@ def save_config(config: Config, root: Path | None = None) -> Path:
     return path
 
 
+_GITIGNORE_MARKER = "# added by verdict init - .verdict/ holds full diffs, prompts, and raw LLM"
+_GITIGNORE_BLOCK = f"""
+{_GITIGNORE_MARKER}
+# responses in plaintext (cache/, runs/, audit.jsonl) - never commit it
+.verdict/
+"""
+_ALREADY_COVERED = {".verdict/", ".verdict", "/.verdict/", "/.verdict"}
+
+
+def ensure_gitignore(root: Path | None = None) -> Path | None:
+    """`.verdict/` holds full diffs, raw prompts/responses, and generated test
+    code in plaintext (cache/, runs/, audit.jsonl) - a plain `git add -A` in a
+    repo with no .gitignore entry for it stages all of that straight into
+    version control, silently defeating the same leak --json's clean output
+    was designed to prevent. Called from `verdict init` so this is closed by
+    default, not an opt-in a user has to know to set up themselves.
+
+    Returns the .gitignore path if it created/modified one, None if `.verdict/`
+    was already covered (no action taken, existing file untouched)."""
+    repo = root or Path.cwd()
+    path = repo / ".gitignore"
+    if path.exists():
+        existing = path.read_text(encoding="utf-8", errors="replace")
+        if any(line.strip() in _ALREADY_COVERED for line in existing.splitlines()):
+            return None
+        separator = "" if existing.endswith("\n") else "\n"
+        path.write_text(existing + separator + _GITIGNORE_BLOCK, encoding="utf-8")
+        return path
+    path.write_text(_GITIGNORE_BLOCK.lstrip("\n"), encoding="utf-8")
+    return path
+
+
 @dataclass
 class OllamaStatus:
     reachable: bool

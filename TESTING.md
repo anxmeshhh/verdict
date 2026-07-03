@@ -49,6 +49,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Reproducibility pin (seed) on cloud providers | `verdict/llm.py` | correctness fix |
 | Validator: unenforced-type-check hallucination guard | `verdict/validator.py` | correctness fix |
 | Scenario-gen cache (`--force-regenerate`) | `verdict/generator.py`, `verdict/cli.py` | post-Phase-1 |
+| Auto `.gitignore` for `.verdict/` on init/model | `verdict/config.py`, `verdict/cli.py` | correctness fix |
 | Inconclusive-scenario visibility in coverage displays | `verdict/ui.py`, `verdict/reporter.py` | correctness fix |
 | Generalized unsupported-behavior-claim guard | `verdict/validator.py` | correctness fix |
 
@@ -109,6 +110,9 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P1]** `config set` for each key: `model`, `ollama_url`, `provider`, `api_key`, `base_url`
 - [ ] **[P1]** `config set provider <invalid>` → rejected, config unchanged
 - [ ] **[P0]** `.verdict/audit.jsonl` after any `config set api_key ...` → key appears masked, never raw
+- [ ] **[P0]** **Regression: `.verdict/` must be gitignored automatically, not left to the user to remember.** `.verdict/cache/`, `.verdict/runs/`, and `.verdict/audit.jsonl` hold full diffs, raw prompts, and raw LLM responses in plaintext - with no `.gitignore` entry, a plain `git add -A` stages all of it, silently defeating the exact leak `--json`'s clean output was designed to prevent. Confirmed live: no `.gitignore` existed in the real demo repo, and `.verdict/INTENT.md` (from earlier `watch`-mode testing) was ALREADY tracked in its git index before this fix - the leak isn't hypothetical, it already happened once (no remote on that repo, so nothing left the machine, but the mechanism is real)
+- [ ] **[P0]** `verdict init` and `verdict model` both call `config.ensure_gitignore()` - creates `.gitignore` with a `.verdict/` entry if none exists, appends to an existing `.gitignore` if `.verdict/` isn't already covered, and is a no-op (returns None, file untouched) if it's already covered - verified all 3 cases plus idempotency (running twice doesn't double-append)
+- [ ] Note: `.gitignore` only prevents FUTURE files from being staged - a file already tracked before the fix stays tracked until explicitly untracked (`git rm --cached`). This is a real, separate follow-up step for any repo where `.verdict/` was already committed before this fix shipped - not something `ensure_gitignore()` can retroactively fix on its own
 - [ ] **[P1]** `verdict health` → three independent checks (config/LLM/Docker), each can fail without affecting the others' reporting
 
 ## 2. Intent Extractor

@@ -22,7 +22,7 @@ from dataclasses import asdict
 
 from verdict import audit, hooks, llm, ui
 from verdict.authoring import AuthoringError, load_scenarios, write_template
-from verdict.config import Config, is_initialized, load_config, save_config
+from verdict.config import Config, ensure_gitignore, is_initialized, load_config, save_config
 from verdict.generator import GenerationError, generate
 from verdict.hybrid import merge
 from verdict.intent import (
@@ -193,6 +193,12 @@ def init(
     if config.provider != "ollama":
         ui.stage_warn("privacy", "cloud provider selected: diffs and intents will leave this machine")
 
+    gitignore_path = ensure_gitignore()
+    if gitignore_path:
+        ui.stage_ok("gitignore", f"{gitignore_path}  [dim]- added .verdict/ (full diffs/prompts live there)[/]")
+    else:
+        ui.stage_ok("gitignore", ".verdict/ already ignored")
+
     _verify_llm_ready(config)
 
 
@@ -332,6 +338,12 @@ def model():
     ui.stage_ok("config", f"{path}  [dim]model:[/] {config.model}  [dim]provider:[/] {config.provider}")
     if config.provider != "ollama":
         ui.stage_warn("privacy", "cloud provider selected: diffs and intents will leave this machine")
+
+    gitignore_path = ensure_gitignore()
+    if gitignore_path:
+        ui.stage_ok("gitignore", f"{gitignore_path}  [dim]- added .verdict/ (full diffs/prompts live there)[/]")
+    else:
+        ui.stage_ok("gitignore", ".verdict/ already ignored")
 
     _verify_llm_ready(config)
 
