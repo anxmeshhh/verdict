@@ -7,6 +7,7 @@ scenario (English) becomes a self-contained Python script that exits 0 when
 the scenario holds and non-zero when it does not. The script is part of the
 audit trail and is stored as evidence alongside the run.
 """
+import ast
 import re
 from dataclasses import dataclass
 
@@ -34,6 +35,10 @@ Write ONE self-contained Python test script that verifies this scenario
 against the repository, which is available at /app (current working
 directory). Rules:
 - Plain Python, no pytest. Use assert statements or explicit checks.
+- Write the check as code that runs immediately - if you put it inside a
+  function, you MUST call that function right after defining it. A function
+  that is defined but never called means your check never executes, no
+  matter what it contains.
 - Exit code 0 means the scenario HOLDS. Any exception or sys.exit(1) means it FAILS.
 - Print one line explaining what was checked and what was found.
 - Import the repo's own modules directly when needed (the repo root is on sys.path).
@@ -80,6 +85,35 @@ def lint_test_code(code: str) -> list[str]:
     # only hard problems block execution; style noise does not
     blocking = [p for p in problems if "undefined name" in p or "syntax" in p.lower()]
     return blocking
+
+
+def find_dead_functions(code: str) -> list[str]:
+    """Deterministic structural check: a top-level function the script defines
+    but never references again is dead code - any assertions inside it never
+    run, so a clean exit code proves nothing about the scenario at all. This
+    is exactly how a PASSED verdict can be wrong without any exception ever
+    being raised."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []  # lint_test_code's syntax check already blocks this case
+
+    top_level = {
+        node.name
+        for node in ast.iter_child_nodes(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    if not top_level:
+        return []
+
+    # ast.Name only fires at USE sites (calls, references, decorators) - the
+    # `def foo():` binding itself is a plain string attribute, never a Name
+    # node - so anything found here is a genuine reference, not the def line.
+    referenced = {
+        node.id for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and node.id in top_level
+    }
+    return sorted(top_level - referenced)
 
 
 MAX_ATTEMPTS = 3
@@ -130,6 +164,14 @@ def generate_test_code(
             problems = ["returned empty code"]
             continue
         problems = lint_test_code(code)
+        dead = find_dead_functions(code)
+        if dead:
+            problems = problems + [
+                f"function(s) defined but never called: {', '.join(dead)} - "
+                "any assertions inside them never run, so the exit code would "
+                "prove nothing. Call them immediately after defining them, or "
+                "write the check as top-level code with no function wrapper."
+            ]
         if not problems:
             return GeneratedTest(
                 scenario=scenario,

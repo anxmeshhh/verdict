@@ -44,7 +44,7 @@ from verdict.reporter import (
     save_html,
     save_run,
 )
-from verdict.sandbox import SandboxError, check_docker, run_all
+from verdict.sandbox import SandboxError, check_docker, run_all, run_test
 from verdict.scorer import score
 from verdict.testgen import generate_test_code
 from verdict.validator import validate
@@ -432,6 +432,36 @@ def run(
     except SandboxError as e:
         _abort("sandbox", str(e))
 
+    # [5.5/6] confirm FAILED results independently. A FAILED scenario is the
+    # most consequential outcome - it raises risk and can block a push - so a
+    # bug in the generated TEST (not the code under test) must never
+    # masquerade as a real failure. Only failing scenarios pay this extra
+    # generation+sandbox cost; passed/uncertain/error results are untouched.
+    downgraded: list[str] = []
+    for result in results:
+        if result.status != "failed":
+            continue
+        matching_test = next((t for t in tests if t.scenario.name == result.scenario_name), None)
+        if matching_test is None:
+            continue
+        try:
+            with ui.working(f"confirming failure for {result.scenario_name}..."):
+                confirm_test = generate_test_code(matching_test.scenario, intent_result, config)
+            _track(confirm_test.prompt_tokens, confirm_test.output_tokens, confirm_test.llm_duration_s)
+            confirm_result = run_test(confirm_test, repo, timeout=timeout)
+        except GenerationError:
+            continue  # could not regenerate - keep the original result as-is
+        if confirm_result.status == "failed":
+            ui.stage_note("confirm", f"{result.scenario_name}: failure reproduced independently")
+        else:
+            result.status = "uncertain"
+            downgraded.append(result.scenario_name)
+            ui.stage_warn(
+                "confirm",
+                f"{result.scenario_name}: independent regeneration did not reproduce the failure "
+                "- downgraded to uncertain (likely a bug in the generated test, not the code)",
+            )
+
     # [6/6] score + report
     risk = score(results)
     ui.stage_ok("score", risk.level)
@@ -439,6 +469,8 @@ def run(
     record = build_record(run_id, intent_result, generation, results, risk, llm.model_id(config), tokens)
     if ungeneratable:
         record["ungeneratable"] = [s.name for s in ungeneratable]
+    if downgraded:
+        record["failure_not_reproduced"] = downgraded
     save_run(record, repo)
     audit.append(
         "run_completed",
