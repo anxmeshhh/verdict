@@ -84,7 +84,14 @@ Local by default: Verdict's scenario generation runs against a self-hosted [Olla
 - Model: `qwen2.5-coder:7b`
 - Run `ollama serve` to start the local inference server before running Verdict.
 
-Prefer a hosted model? Bring your own API key — all providers go through one OpenAI-compatible transport:
+Prefer a hosted model? Pick the provider right at setup, in one shot:
+
+```
+verdict init --provider groq --model llama-3.3-70b-versatile --api-key <key>
+# or: openrouter | gemini | openai | custom (custom also needs --base-url)
+```
+
+All providers go through one OpenAI-compatible transport, and you can change any of it later without re-running init:
 
 ```
 verdict config set provider openrouter   # or: groq | gemini | openai | custom

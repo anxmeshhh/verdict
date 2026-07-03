@@ -141,22 +141,46 @@ def _masked_config(data: dict) -> dict:
     return masked
 
 
+MODEL_HINTS = {
+    "openrouter": "e.g. --model qwen/qwen-2.5-coder-32b-instruct",
+    "groq": "e.g. --model llama-3.3-70b-versatile",
+    "gemini": "e.g. --model gemini-2.0-flash",
+    "openai": "e.g. --model gpt-4o-mini",
+    "custom": "whatever your endpoint serves",
+}
+
+
 @app.command()
 def init(
-    model: str = typer.Option(None, help="Model to use (defaults to qwen2.5-coder:7b)"),
+    model: str = typer.Option(None, help="Model to use (defaults to qwen2.5-coder:7b for ollama)"),
     ollama_url: str = typer.Option(None, help="Ollama server URL (defaults to http://localhost:11434)"),
     provider: str = typer.Option(None, help="LLM provider: ollama (local, default) | openrouter | groq | gemini | openai | custom"),
+    api_key: str = typer.Option(None, "--api-key", help="API key for a cloud provider (or set the VERDICT_API_KEY env var instead)"),
+    base_url: str = typer.Option(None, "--base-url", help="Custom OpenAI-compatible endpoint (required for provider=custom)"),
 ):
-    """Module 1: one-time setup - writes .verdict/config.json and checks the LLM provider is ready."""
+    """Module 1: one-time setup - writes .verdict/config.json and checks the LLM provider is ready.
+
+    Pick a provider right here at setup - local Ollama (default, diffs never
+    leave the machine) or a cloud API key in one shot, e.g.:
+      verdict init --provider groq --model llama-3.3-70b-versatile --api-key <key>
+    """
     existing = load_config()
     if provider and provider not in llm.PROVIDERS:
         _fail("config", f"unknown provider '{provider}' (valid: {', '.join(llm.PROVIDERS)})")
+    resolved_provider = provider or existing.provider
+    resolved_model = model or existing.model
+
+    switching_to_cloud = provider and provider != "ollama" and provider != existing.provider
+    if switching_to_cloud and model is None:
+        hint = MODEL_HINTS.get(resolved_provider, "")
+        _fail("config", f"provider '{resolved_provider}' needs --model ({hint})")
+
     config = Config(
-        model=model or existing.model,
+        model=resolved_model,
         ollama_url=ollama_url or existing.ollama_url,
-        provider=provider or existing.provider,
-        api_key=existing.api_key,
-        base_url=existing.base_url,
+        provider=resolved_provider,
+        api_key=api_key or existing.api_key,
+        base_url=base_url or existing.base_url,
     )
     path = save_config(config)
     audit.append(
@@ -164,6 +188,8 @@ def init(
         {"before": _masked_config(asdict(existing)), "after": _masked_config(asdict(config))},
     )
     ui.stage_ok("config", f"{path}  [dim]model:[/] {config.model}  [dim]provider:[/] {config.provider}")
+    if config.provider != "ollama":
+        ui.stage_warn("privacy", "cloud provider selected: diffs and intents will leave this machine")
 
     with ui.working(f"checking {config.provider}..."):
         status = llm.check(config)

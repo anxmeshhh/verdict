@@ -40,11 +40,16 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Intent display fix | `verdict/cli.py` | correctness fix |
 | Broken-monkeypatch detection | `verdict/testgen.py` | correctness fix |
 | FAILED-result confirmation | `verdict/cli.py` | correctness fix |
+| One-shot provider setup (`init --provider/--api-key/--base-url`) | `verdict/cli.py` | correctness fix |
 
 ## 1. Config & Setup
 
 - [ ] **[P1]** `verdict init` with no flags → default `ollama` provider, correct model
 - [ ] **[P1]** `verdict init --provider openrouter` (unknown provider) → rejected with valid-options message
+- [ ] **[P0]** **Regression: one-shot cloud provider setup.** `verdict init --provider groq --model <id> --api-key <key>` in a single command writes provider+model+key together (no forced `config set` follow-up) and prints the cloud-privacy warning
+- [ ] **[P0]** `verdict init --provider <cloud>` with no `--model` and no prior model for that provider → rejected with a provider-specific model-name hint, config NOT written
+- [ ] **[P1]** Re-running `init` on the SAME provider (e.g. rotating `--api-key`) does NOT demand `--model` again — only an actual provider switch triggers the guard
+- [ ] **[P1]** Switching provider back to `ollama` never requires `--model`
 - [ ] **[P1]** `config get` (no key) → lists all keys, `api_key` masked as `****xxxx`
 - [ ] **[P1]** `config set` for each key: `model`, `ollama_url`, `provider`, `api_key`, `base_url`
 - [ ] **[P1]** `config set provider <invalid>` → rejected, config unchanged
