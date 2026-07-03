@@ -44,6 +44,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Interactive `model` picker (live-fetched list, `/model` in shell) | `verdict/cli.py` | post-Phase-1 |
 | User-Agent on outgoing cloud requests | `verdict/llm.py` | correctness fix |
 | JSON-mode-rejection fallback | `verdict/llm.py`, `verdict/generator.py` | correctness fix |
+| Rate-limit (429) Retry-After handling | `verdict/llm.py` | correctness fix |
 
 ## 1. Config & Setup
 
@@ -65,6 +66,10 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P0]** **Regression: model that can't do enforced JSON mode must not hard-fail scenario-gen.** Some models (seen live: a Qwen build on Groq) return `HTTP 400 json_validate_failed` with an empty `failed_generation` when `response_format: json_object` is set - not a bad key or bad request, the model just can't produce valid output under forced JSON mode. `llm.call(..., json_format=True)` must detect this specific error and retry the SAME request once with JSON mode turned off before giving up, since the prompt already demands JSON-only text on its own
 - [ ] **[P0]** An unrelated 400 (bad model id, bad request shape) must NOT be caught by the JSON-mode fallback - it must still raise immediately as before, no wasted retry
 - [ ] **[P1]** Scenario-gen JSON parsing tolerates a markdown-fenced response (` ```json ... ``` `), not just bare JSON - needed once JSON mode isn't enforced and a model reverts to its default formatting habits
+- [ ] **[P0]** **Regression: 429 (rate limit) must honor the provider's `Retry-After` header**, not just a fixed 1s/5s backoff - a free-tier requests/tokens-per-minute limit routinely needs far longer than that, so the fixed schedule burned all 3 attempts without ever waiting long enough
+- [ ] **[P1]** A huge/malicious `Retry-After` value is capped (`RATE_LIMIT_MAX_WAIT` = 30s) so a single command can't hang indefinitely
+- [ ] **[P1]** No `Retry-After` header present → falls back to the original fixed backoff schedule, unchanged
+- [ ] **[P1]** Exhausting all attempts on repeated 429s raises a message that specifically names rate-limiting as the cause, not a generic "unreachable"
 - [ ] **[P1]** `config get` (no key) → lists all keys, `api_key` masked as `****xxxx`
 - [ ] **[P1]** `config set` for each key: `model`, `ollama_url`, `provider`, `api_key`, `base_url`
 - [ ] **[P1]** `config set provider <invalid>` → rejected, config unchanged

@@ -22,6 +22,10 @@ from verdict.ollama import LLMResponse
 REQUEST_TIMEOUT = 300
 MAX_TRANSPORT_ATTEMPTS = 3
 BACKOFF_SECONDS = (1, 5)
+# A provider under real rate-limit pressure (esp. free-tier requests/tokens
+# per minute) can ask to wait far longer than our fixed backoff - respect
+# that when it tells us, but don't let an interactive command hang forever.
+RATE_LIMIT_MAX_WAIT = 30.0
 
 API_KEY_ENV = "VERDICT_API_KEY"
 
@@ -101,6 +105,19 @@ def call(
     return _call_openai_compatible(prompt, config, json_format, temperature)
 
 
+def _retry_delay(e: urllib.error.HTTPError, attempt: int) -> float:
+    """Honor a standard Retry-After header (seconds) when the provider sends
+    one - typical for real rate-limit responses - else fall back to our fixed
+    backoff schedule."""
+    header = e.headers.get("Retry-After") if e.headers else None
+    if header:
+        try:
+            return min(float(header), RATE_LIMIT_MAX_WAIT)
+        except ValueError:
+            pass
+    return BACKOFF_SECONDS[min(attempt - 1, len(BACKOFF_SECONDS) - 1)]
+
+
 def _is_json_mode_rejection(status_code: int, detail: str) -> bool:
     """Some models (seen on Groq, e.g. certain Qwen builds) can't reliably
     produce output under a provider's enforced JSON mode and get a 400 back
@@ -141,6 +158,7 @@ def _call_openai_compatible(
 
     start = time.monotonic()
     last_error: Exception | None = None
+    delay: float | None = None
     attempt = 1
     while attempt <= MAX_TRANSPORT_ATTEMPTS:
         try:
@@ -177,13 +195,21 @@ def _call_openai_compatible(
                     f"{config.provider} rejected the request (HTTP {e.code}): {detail or e.reason}"
                 ) from e
             last_error = e
+            delay = _retry_delay(e, attempt)
         except (urllib.error.URLError, OSError, TimeoutError) as e:
             last_error = e
+            delay = None
 
         if attempt < MAX_TRANSPORT_ATTEMPTS:
-            time.sleep(BACKOFF_SECONDS[attempt - 1])
+            time.sleep(delay if delay is not None else BACKOFF_SECONDS[min(attempt - 1, len(BACKOFF_SECONDS) - 1)])
         attempt += 1
 
+    if isinstance(last_error, urllib.error.HTTPError) and last_error.code == 429:
+        raise LLMDown(
+            f"{config.provider} rate-limited this request (HTTP 429) after {MAX_TRANSPORT_ATTEMPTS} "
+            "attempts - you're hitting the provider's requests/tokens-per-minute limit. Wait a bit "
+            "and retry, or check your plan's rate limits."
+        ) from last_error
     raise LLMDown(
         f"{config.provider} unreachable after {MAX_TRANSPORT_ATTEMPTS} attempts: {last_error}"
     ) from last_error
