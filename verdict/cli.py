@@ -288,11 +288,16 @@ def model():
 
     if provider != "ollama":
         import os as _os
-        from rich.prompt import Prompt
 
         has_key = bool(_os.environ.get(llm.API_KEY_ENV, "").strip() or api_key)
-        label = "API key" if not has_key else "API key [dim](enter to keep the current one)[/]"
-        entered = Prompt.ask(f"  [bold cyan]{label}[/]", password=True, default="", show_default=False)
+        # Plain (unmasked) input on purpose: getpass-style hidden prompts read
+        # the console in raw/char-by-char mode, which on Windows terminals
+        # commonly drops or mangles clipboard-pasted text - the key silently
+        # comes back empty and the old/invalid one gets kept instead. A
+        # visible prompt uses normal line-buffered input, so paste works.
+        label = "API key (visible while typing/pasting)" if not has_key else \
+            "API key (visible - enter to keep the current one)"
+        entered = ui.console.input(f"  [bold cyan]{label}[/] > ").strip().strip("'\"")
         if entered:
             api_key = entered
         elif not has_key:

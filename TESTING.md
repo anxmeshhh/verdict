@@ -56,6 +56,8 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P0]** `model` picker: if live listing fails (bad key, provider down), falls back to manual model-id entry instead of crashing or silently guessing
 - [ ] **[P1]** `model` picker: switching provider then blank-entering the API key with no existing key or env var → rejected, config unchanged
 - [ ] **[P1]** In the interactive shell, a line starting with `/` (e.g. `/model`) behaves identically to the same word without the slash
+- [ ] **[P0]** **Regression: API key prompt in `model` must accept pasted text.** The prompt is plain (unmasked) input, not `getpass`/`Prompt.ask(password=True)` - hidden-input raw-mode reading is known to silently drop or mangle clipboard-pasted text on Windows terminals, which fed a stale/invalid key straight into the provider call and surfaced as a confusing 403 instead of a clear "key not set" error
+- [ ] **[P1]** Pasted key with stray surrounding quotes/whitespace (common when copying from a quoted source) is stripped before being saved
 - [ ] **[P1]** `config get` (no key) → lists all keys, `api_key` masked as `****xxxx`
 - [ ] **[P1]** `config set` for each key: `model`, `ollama_url`, `provider`, `api_key`, `base_url`
 - [ ] **[P1]** `config set provider <invalid>` → rejected, config unchanged
