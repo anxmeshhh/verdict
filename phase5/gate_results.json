@@ -1,0 +1,56 @@
+{
+  "gate": "Phase 5 - a stranger clones and gets a working run in <10 minutes",
+  "ran_at": "2026-07-03T22:22:28.732618+00:00",
+  "method": "literal git clone to a temp dir + .env as setup.sh writes it + docker compose up -d --build + POST /runs through the real API. LLM = local mock via provider=custom/host.docker.internal (same transport and config path as a real key; the model itself is not under test here).",
+  "checks": [
+    {
+      "check": "clean_clone",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "env_written",
+      "ok": true,
+      "detail": "HOST_DATA_DIR + generated API key, like setup.sh"
+    },
+    {
+      "check": "compose_up_builds",
+      "ok": true,
+      "detail": "40s in"
+    },
+    {
+      "check": "stack_healthy",
+      "ok": true,
+      "detail": "postgres=ok, queue=ok, redis=ok, docker=ok, disk=ok"
+    },
+    {
+      "check": "api_key_enforced",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "run_submitted",
+      "ok": true,
+      "detail": "{'job_id': 1, 'run_id': 'run_02ffe5', 'status': 'queued', 'deduped': False}"
+    },
+    {
+      "check": "run_completed",
+      "ok": true,
+      "detail": "job status: completed"
+    },
+    {
+      "check": "verdict_low_through_full_stack",
+      "ok": true,
+      "detail": "2 passed - via compose api -> redis -> worker -> DooD sandbox"
+    },
+    {
+      "check": "under_ten_minutes",
+      "ok": true,
+      "detail": "50.3s total (clone -> build -> up -> verified run)"
+    }
+  ],
+  "passed": 9,
+  "total": 9,
+  "gate_met": true,
+  "elapsed_seconds": 50.3
+}

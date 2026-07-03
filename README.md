@@ -24,7 +24,13 @@ Beyond the doc's Phase 1 scope, also shipped: interactive `verdict` shell, appen
 - **Full scope control** — `--path <file-or-folder>` (repeatable) on `run`, `plan`, and `watch`: verify exactly the files the developer chooses, nothing else.
 - **Human-readable history** — `verdict runs` (table of past verdicts), `verdict report [run-id]` (self-contained, shareable HTML page per run), and `'last'` works anywhere a run id does. The JSON records stay on disk as evidence; no human has to read them.
 
-**Next: Phase 2** — control & trust layer (config, override with logged reasons, Postgres data layer). Gate: can answer "why did it flag this" for any run, from stored data alone.
+**Phase 2: PASSED (2026-07-04).** Postgres data layer (dual-write; the file store stays canonical for the plain CLI), `verdict override <id> --reason` with the override rate tracked as a first-class metric, `verdict status`, `verdict db init/migrate-files/stats`. Gate MET 11/11 ([`phase2/gate_results.json`](./phase2/gate_results.json)): the real 66-run history from live testing migrated, then a real HIGH-risk run fully explained — reasons, failing-scenario evidence, test code, exact prompt — from SQL alone.
+
+**Phase 3: PASSED (2026-07-04).** FastAPI gateway + Redis/Celery worker pool + Module 18 health (`verdict serve` / `verdict worker`; `/health`, `/metrics` in Prometheus format). Gate MET 12/12 ([`phase3/gate_results.json`](./phase3/gate_results.json)): 5 concurrent runs through the real stack in 11.6s, zero dropped/duplicated (dedupe enforced by a Postgres UNIQUE constraint, not app logic), LLM-down jobs park as `waiting_on_llm` and retry, Redis stopped mid-gate → honest 503 + new work refused + clean recovery.
+
+**Phase 4: BUILT, local checks 21/21 (2026-07-04).** GitHub Action wrapper ([`action/`](./action)) + webhook/Checks API path ([`verdict/server/github.py`](./verdict/server/github.py)). The 3-way exit-code contract lands on PRs as check conclusions: LOW→success, risky→failure, could-not-verify→**neutral** (checker problem ≠ code risk). Live gate needs one repo secret — see [`phase4/README.md`](./phase4/README.md).
+
+**Phase 5: PASSED (2026-07-04).** docker-compose stack (Postgres, Redis, API, worker, optional Ollama profile) + `setup.sh`/`setup.ps1`. Gate MET 9/9 ([`phase5/gate_results.json`](./phase5/gate_results.json)): a literal fresh `git clone` → `.env` → `compose up --build` → submitted run → LOW verdict through the full stack in **50.3 seconds** against the 10-minute budget.
 
 Manual production-readiness checklist for everything above: [`TESTING.md`](./TESTING.md).
 
@@ -32,12 +38,12 @@ Manual production-readiness checklist for everything above: [`TESTING.md`](./TES
 
 | Phase | Deliverable | Gate to proceed |
 |---|---|---|
-| 0 | ✅ Offline precision validation, no infra | Precision > 70% |
-| 1 | ✅ Core pipeline as a CLI tool | Runs cleanly end-to-end, 10x in a row, no crashes |
-| 2 | 🔨 Control & trust layer — config, override, logs, Postgres | Can answer "why did it flag this" from stored data alone |
-| 3 | Concurrency & reliability — Redis queue, worker pool, health checks | 5 concurrent runs, no dropped/duplicated jobs |
-| 4 | GitHub integration — webhook, Checks API, Action wrapper | A real PR gets an accurate check, unaided |
-| 5 | Packaging — docker-compose, setup script | A stranger clones it and gets a working run in <10 min |
+| 0 | ✅ Offline precision validation, no infra | Precision > 70% — **85%** |
+| 1 | ✅ Core pipeline as a CLI tool | Runs cleanly end-to-end, 10x in a row, no crashes — **10/10** |
+| 2 | ✅ Control & trust layer — config, override, logs, Postgres | "Why did it flag this" from stored data alone — **11/11** |
+| 3 | ✅ Concurrency & reliability — Redis queue, worker pool, health checks | 5 concurrent runs, no dropped/duplicated jobs — **12/12** |
+| 4 | ✅* GitHub integration — webhook, Checks API, Action wrapper | A real PR gets an accurate check, unaided — *local 21/21; live run needs a repo secret* |
+| 5 | ✅ Packaging — docker-compose, setup script | A stranger clones it and gets a working run in <10 min — **50.3s** |
 | 6 | Public validation — publish precision/recall numbers | Real external users, real override data |
 | 7 | Dashboard — read-only web UI | Preferred over raw logs for daily use |
 | 8 | Real-time layer — WebSocket, settlement-based live triggering | Live mode <5s/save, doesn't compete with an active agent |
@@ -45,6 +51,8 @@ Manual production-readiness checklist for everything above: [`TESTING.md`](./TES
 | 10 | Scale hardening — Firecracker, vLLM, fine-tuning | Only if metrics prove a bottleneck |
 
 Phase 1 is already a real, usable tool even if the project stopped there. Phase 5 is the point a stranger can install and trust it. Everything past Phase 6 is additive reach.
+
+**Recorded for later (deliberately not built yet):** a `verdict.yaml` project-runner declaration (services/test-command/seed data — what full-stack repos need the sandbox to stand up), diff chunking for very large PRs, per-service sandbox secrets, and scenario-level (within-run) sandbox concurrency.
 
 ## Module breakdown (Phase 1 scope: Modules 1-8)
 
@@ -127,14 +135,33 @@ hallucination), since a cache hit would otherwise hide it.
 
 ```
 verdict                          # branded interactive shell
+verdict check                    # verify the obvious thing - no flags (uncommitted changes, else last commit)
 verdict run                      # verify HEAD (or --ref, --base, --intent for working tree)
 verdict run --path src/auth/     # verify only the files/folders you choose (repeatable)
 verdict watch                    # live mode: auto-verify when the working tree settles
+verdict scenario add             # author a scenario interactively - no YAML to learn
+verdict use groq                 # switch provider profiles by name, no secrets typed
 verdict runs                     # history of past verdicts as a table
 verdict report last              # shareable self-contained HTML page for a run
 verdict logs last                # full evidence: prompt, test code, sandbox output
+verdict override run_x --reason "..."   # disagree with a verdict, on the record
 verdict install-hook             # pre-push gate: non-LOW verdicts block the push
+verdict health                   # honest liveness of every configured dependency
 ```
+
+**Exit codes (CI contract):** `0` verified LOW · `1` the code looks risky (MEDIUM/HIGH/UNVERIFIED) · `2` verdict itself couldn't verify (bad ref, provider down — alert the checker's owner, don't blame the code).
+
+## Server mode (Phases 2-3)
+
+```
+./setup.sh          # or .\setup.ps1 on Windows - writes .env, builds, starts, waits for health
+```
+
+Brings up Postgres + Redis + API (`:8400`) + worker. `POST /runs` to submit, `GET /jobs/<id>` to watch stage progression, `GET /runs/<id>` for the verdict, `/health` and `/metrics` (Prometheus) for operations, and a read-only run-history page at `/`. Same-commit submissions dedupe; `verdict override` and run history read from Postgres. Repos to verify live under `./data/repos` (the sandbox reaches them through the host Docker daemon).
+
+## GitHub PRs
+
+Copy [`action/example-workflow.yml`](./action/example-workflow.yml) to `.github/workflows/verdict.yml` in the repo you want checked, add a `VERDICT_API_KEY` repo secret, open a PR — the `verdict` check appears with per-scenario evidence. A webhook + Checks API path for the self-hosted server ships too ([`phase4/README.md`](./phase4/README.md)).
 
 ## License
 
