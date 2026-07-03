@@ -21,6 +21,12 @@ bug. Section 1 parked by deliberate choice - see its own note below. Every
 fix found along the way is documented in place, below, with what was
 confirmed and how.**
 
+**Status (2026-07-04): Phases 2-5 built in one pass, each phase gate-verified
+before the next (Section 15). Gates: Phase 2 11/11, Phase 3 12/12, Phase 4
+21/21 local (live PR check pending one repo secret), Phase 5 9/9 in 50.3s.
+The cli.run() → pipeline.py refactor was proven byte-identical against a
+pre-refactor snapshot before anything was built on top of it.**
+
 ## What's implemented (reference)
 
 | Area | File | Status |
@@ -61,6 +67,13 @@ confirmed and how.**
 | Silent `--max-scenarios` cap drop made visible | `verdict/cli.py`, `verdict/ui.py`, `verdict/reporter.py` | correctness fix |
 | Inconclusive-scenario visibility in coverage displays | `verdict/ui.py`, `verdict/reporter.py` | correctness fix |
 | Generalized unsupported-behavior-claim guard | `verdict/validator.py` | correctness fix |
+| Postgres data layer + override/status/db | `verdict/store.py`, `verdict/cli.py` | Phase 2 |
+| Shared pipeline (CLI/worker frontends) | `verdict/pipeline.py` | Phase 3 prep |
+| check / 3-way exit codes / scope recap / profiles / scenario add | `verdict/cli.py`, `verdict/ui.py`, `verdict/reporter.py` | UX bundle |
+| API gateway + Celery worker pool | `verdict/server/api.py`, `verdict/server/queue.py` | Phase 3 |
+| Module 18 health + /metrics | `verdict/health.py` | Phase 3 |
+| GitHub Action + webhook/Checks API | `action/`, `verdict/server/github.py` | Phase 4 |
+| docker-compose + setup + DooD path map | `Dockerfile`, `docker-compose.yml`, `setup.*`, `verdict/sandbox.py` | Phase 5 |
 
 ## 1a. Scenario-gen cache (decided 2026-07-03: cache scenario-gen only, never testgen/execution)
 
@@ -266,6 +279,58 @@ bug ever surfaces, same as everything else in this file.
 - [ ] **[P2]** Cloud provider active with a bad/missing API key → clear error naming what's missing, not a crash
 - [ ] **[P1]** Run from a completely separate repo → never touches this repo's own `.verdict/`, fully independent per-project state
 
+## 15. Phases 2-5 (built 2026-07-04 in one pass; each phase gate-verified before the next)
+
+Gate evidence lives beside each phase: `phase2/gate_results.json` (11/11),
+`phase3/gate_results.json` (12/12), `phase4/test_results.json` (21/21 local),
+`phase5/gate_results.json` (9/9, 50.3s vs the 600s budget). Items below are
+the standing regression surface on top of those gates.
+
+### 15a. Data layer (`verdict/store.py`) + override
+
+- [x] **[P0]** Dual-write: one `save_run()` call lands in the file AND Postgres when `database_url` is set; file store stays canonical and byte-identical with no DB configured (regression-swept live on the demo repo)
+- [x] **[P0]** "Why did it flag this" answerable from SQL alone for a REAL HIGH-risk run: reasons, per-scenario stdout evidence + test code, exact prompt + raw response, audit lifecycle
+- [x] **[P0]** `override` requires `--reason`, is INSERT-only (annotates, never edits), audit-logged, and prints the running override rate (the Section 13 first-class metric); OVERRIDDEN surfaces in runs/logs/report/HTML
+- [x] **[P1]** `db migrate-files` backfills the whole file history idempotently (66 real runs + 143 audit entries in the gate)
+- [x] **[P0]** DB unreachable in CLI mode → one loud stderr warning, file write still succeeds; `init`/`model` no longer wipe `database_url` when rebuilding Config (bug found and fixed during the pipeline refactor)
+
+### 15b. Pipeline refactor (`verdict/pipeline.py`)
+
+- [x] **[P0]** **Equivalence proven, not assumed:** deterministic mocked-LLM harness captured rich stdout/stderr, `--json` stdout/stderr, the saved record, and exit codes BEFORE the refactor and AFTER — byte-for-byte identical diff across all artifacts; abort path (invalid ref → errored record + exit) verified separately
+- [x] **[P1]** The default `PipelineEvents` (all no-ops) produces identical records/audit entries — any frontend gets the same verdict
+
+### 15c. UX bundle
+
+- [x] **[P0]** 3-way exit codes on `run`/`check`: 0=LOW, 1=risky verdict, 2=verdict couldn't verify — CI can tell "block the merge" from "the checker is broken"; the pre-push hook still blocks on ANY non-zero (can't-verify never silently passes)
+- [x] **[P0]** `verdict check`: uncommitted changes → working tree (INTENT.md; clear exit-2 if missing/vague); clean tree → last commit; inferred scope printed before anything runs
+- [x] **[P1]** Scope recap ("checked: single commit X / commit range A..B / uncommitted working tree") stored in every record incl. errored ones, shown in panel/logs/terminal/HTML/github formats; old records without the field render fine (regression-swept)
+- [x] **[P1]** "N/M planned scenario(s) executed" always visible — executed vs planned can never silently diverge (highlighted when they disagree)
+- [x] **[P0]** `verdict profile save/list/delete` + `verdict use <name>`: secrets typed once, switched by name, masked in every display, switches audit-logged
+- [x] **[P1]** `verdict scenario add/list`: interactive authoring, duplicate names rejected, template placeholders auto-dropped, output loads through the same Module 3b path
+- [x] **[P0]** `--json` emits exactly one JSON object on stdout for EVERY outcome including errored/skipped (previously an aborted --json run printed nothing — never-silent violation, fixed during Phase 4)
+
+### 15d. Server mode (API + queue + Module 18)
+
+- [x] **[P0]** 5 concurrent runs through the real stack (uvicorn + Celery + Redis + Postgres + Docker): all complete, distinct run ids, exactly 2 result rows per run — no drops, no double-runs (11.6s wall)
+- [x] **[P0]** Dedupe by UNIQUE constraint on (repo, base, head SHA, model, prompt-contract version); `force=true` deliberately bypasses; a job whose enqueue fails is rolled back so it can't dedupe-block forever
+- [x] **[P0]** Honest degradation, proven live: Redis stopped mid-gate → `/health` 503 with the component named, new work refused outright, clean recovery on restart; LLM down → job parks as `waiting_on_llm` and retries, never dropped
+- [x] **[P1]** Disk health has two thresholds (WARN 85% — loud but operational, per the doc's own example; CRITICAL 95% — unhealthy): the first gate run itself caught this distinction on a real 87%-full disk
+- [x] **[P1]** `/metrics` Prometheus text (`verdict_health_status{component=...}`, `verdict_queue_depth`); `/health` + `/metrics` never require auth — an unhealthy system must be observable while unhealthy
+
+### 15e. GitHub integration
+
+- [x] **[P0]** Webhook: timing-safe HMAC verification; unsigned/tampered payloads rejected; webhooks disabled outright with no secret configured (a forged payload must never trigger clones or runs)
+- [x] **[P0]** `prepare_repo` force-checkouts the exact PR head SHA — the sandbox mounts the working tree, so the working tree must BE the commit under verification (verified both directions)
+- [x] **[P0]** Exit-code → check conclusion: LOW→success, risky→failure, could-not-verify→NEUTRAL (checker broke ≠ code risky), and the Action's gate step still fails on 2 — can't-verify never silently passes a PR
+- [x] **[P1]** `format_github`: scope up front, executed-vs-planned, per-scenario evidence table, cap-drops + overrides called out; errored runs phrased explicitly as a checker problem, not evidence about the code
+- [ ] **[P0]** LIVE gate: a real PR gets an accurate check unaided — needs one user step (add a `VERDICT_API_KEY` repo secret; see `phase4/README.md`), then open a PR with a planted intent-vs-behavior bug and a clean PR
+
+### 15f. Packaging
+
+- [x] **[P0]** Stranger-clone gate ran literally: fresh `git clone` (committed files only) → `.env` as setup.sh writes it → `compose up --build` → authenticated POST /runs → LOW verdict through api→redis→worker→DooD sandbox — 50.3s total
+- [x] **[P0]** DooD path mapping: sandbox `-v` mounts translated container→host via `VERDICT_HOST_PATH_MAP`; per-test scratch moved out of container-local temp (which the host daemon can't see — the test file would silently vanish) into the shared data volume; both no-ops for the plain CLI
+- [x] **[P1]** `.gitattributes` pins LF on shell scripts (a Windows clone would otherwise break the Linux entrypoint); `.env.example` un-ignored (secretless template must ship); API key enforcement verified from the fresh clone (401 without header)
+
 ## Recording results
 
 Check items off directly in this file, noting the run id (`verdict runs`)
@@ -276,4 +341,4 @@ next to anything worth keeping as evidence:
 ```
 
 Any failed check is a correctness bug in the referee itself — file it
-before moving on to Phase 2.
+before moving on.
