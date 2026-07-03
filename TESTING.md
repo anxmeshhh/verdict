@@ -35,6 +35,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Audit log | `verdict/audit.py` | post-Phase-1 |
 | Dead-function detection | `verdict/testgen.py` | correctness fix |
 | Range vagueness fix | `verdict/intent.py` | correctness fix |
+| Reproducibility fix (temp=0, seed=0) | `verdict/ollama.py`, `verdict/llm.py` | correctness fix |
 | FAILED-result confirmation | `verdict/cli.py` | correctness fix |
 
 ## 1. Config & Setup
@@ -150,6 +151,8 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P0]** **FAILED confirmation pass**: a scenario whose failure reproduces on independent regeneration stays `FAILED`; one that doesn't reproduce is downgraded to `uncertain` and recorded under `failure_not_reproduced` — never left as a confident but wrong `FAILED`
 - [ ] **[P2]** Confirmation pass only fires for `FAILED` results — passed/uncertain/error scenarios don't pay the extra generation+sandbox cost
 - [ ] **[P0]** **Range vagueness fix**: a `--base` range whose HEAD commit is vague (`"wip"`) but contains a genuinely descriptive earlier commit is NOT flagged vague; a range where every commit is genuinely vague still is
+- [ ] **[P0]** **Reproducibility fix**: the same fixed diff/intent, run through `verdict plan` repeatedly, produces the same scenario count and the same traceability result every time (temperature=0.0 + fixed seed) — a flip between e.g. 4/4 and 3/4 traceable on unchanged input is a regression
+- [ ] **[P2]** A range built from a *moving* relative ref (e.g. `--base HEAD~2` re-run after adding more commits) is expected to change results — that's the ref pointing at different commits, not nondeterminism; don't confuse the two when testing
 
 ## 14. Resilience / stress / isolation
 
