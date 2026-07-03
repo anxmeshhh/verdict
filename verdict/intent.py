@@ -97,12 +97,31 @@ def extract_from_commit(repo: Path, ref: str = "HEAD", paths: list[str] | None =
     return _build(diff, intent)
 
 
+def _range_vague(subjects: list[str]) -> tuple[bool, str | None]:
+    """A range is vague only if EVERY commit subject in it is vague on its
+    own. `git log` lists newest-first, so judging the joined blob as one
+    string (via check_vagueness's start-anchored placeholder patterns) lets
+    a throwaway HEAD message like "wip" poison an otherwise well-described
+    range - the exact opposite of what vagueness detection exists to catch.
+    One genuinely descriptive commit is real information worth verifying
+    against, even if a later commit in the same range says nothing."""
+    if not subjects:
+        return True, "range contains no commits"
+    reasons = [check_vagueness(s) for s in subjects]
+    if all(r is not None for r in reasons):
+        return True, reasons[0]  # HEAD's own reason - the one the user would act on
+    return False, None
+
+
 def extract_from_range(repo: Path, base: str, head: str = "HEAD", intent: str | None = None, paths: list[str] | None = None) -> IntentResult:
     """Diff of base..head; intent from arg or the combined commit messages in the range."""
     diff = _git(repo, "diff", f"{base}...{head}", "--no-color", *_pathspec(paths))
-    if intent is None:
-        intent = _git(repo, "log", "--format=%s", f"{base}..{head}").strip()
-    return _build(diff, intent)
+    if intent is not None:
+        return _build(diff, intent)
+    subjects = [s for s in _git(repo, "log", "--format=%s", f"{base}..{head}").splitlines() if s.strip()]
+    joined = "\n".join(subjects)
+    vague, reason = _range_vague(subjects)
+    return IntentResult(diff=diff, intent=joined, vague=vague, vague_reason=reason)
 
 
 def extract_from_working_tree(repo: Path, intent: str, paths: list[str] | None = None) -> IntentResult:
