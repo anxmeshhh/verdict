@@ -35,13 +35,17 @@ def call(
     model: str,
     ollama_url: str,
     json_format: bool = False,
-    temperature: float = 0.2,
+    temperature: float = 0.0,
 ) -> LLMResponse:
+    # Fixed seed + near-zero temperature: the same diff+intent should produce
+    # the same scenario wording and the same traceability verdict every time.
+    # A "proof, not vibes" tool that gives a different answer to an unchanged
+    # question on every run is indistinguishable from vibes to the user.
     payload: dict = {
         "model": model,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": temperature},
+        "options": {"temperature": temperature, "seed": 0},
     }
     if json_format:
         payload["format"] = "json"

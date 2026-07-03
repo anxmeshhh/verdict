@@ -82,7 +82,7 @@ def call(
     prompt: str,
     config: Config,
     json_format: bool = False,
-    temperature: float = 0.2,
+    temperature: float = 0.0,
 ) -> LLMResponse:
     if is_local(config):
         try:
