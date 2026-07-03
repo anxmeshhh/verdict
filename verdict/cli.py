@@ -462,7 +462,12 @@ def run(
     """The full pipeline: intent -> scenarios -> validate -> sandbox -> score -> report.
 
     Orchestration lives in verdict/pipeline.py (shared with the Phase 3
-    worker); this command is the Rich-rendering frontend for it."""
+    worker); this command is the Rich-rendering frontend for it.
+
+    Exit codes (CI contract): 0 = verified LOW risk. 1 = the CODE looks
+    risky (MEDIUM/HIGH/UNVERIFIED - an evidence-based verdict). 2 = verdict
+    itself could not verify (bad ref, provider down, Docker down, bad
+    invocation) - alert the checker's owner, don't blame the code."""
     if as_json:
         # stdout must contain ONLY the final json blob - every progress/status
         # line from here on goes to stderr instead, before anything can print
@@ -471,21 +476,27 @@ def run(
     config = load_config()
     if hybrid and scenarios_file is None:
         ui.stage_fail("config", "--hybrid needs --scenarios <file> to know which manual scenarios to merge")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2)
     params = PipelineParams(
         ref=ref, base=base, intent=intent, paths=path,
         scenarios_file=scenarios_file, hybrid=hybrid,
         max_scenarios=max_scenarios, timeout=timeout,
         force_regenerate=force_regenerate,
     )
+    _run_and_finish(params, config, repo, as_json)
 
+
+def _run_and_finish(params: PipelineParams, config: Config, repo: Path, as_json: bool) -> None:
+    """Shared tail for run/check: banner, pipeline, output, 3-way exit code."""
     if not as_json:
         ui.banner(params.mode, config.model, config.provider)
 
     outcome = execute_pipeline(params, config, repo, events=_CliEvents())
 
     if outcome.status in ("errored", "skipped"):
-        raise typer.Exit(code=1)
+        # verdict couldn't produce evidence either way - that is NOT the same
+        # signal as "the code is risky", and CI must be able to tell them apart
+        raise typer.Exit(code=2)
     if as_json:
         typer.echo(format_json(outcome.record))
     else:
@@ -493,6 +504,61 @@ def run(
     if outcome.status == "unverified":
         raise typer.Exit(code=1)
     raise typer.Exit(code=0 if outcome.risk_level == "LOW" else 1)
+
+
+@app.command()
+def check(
+    path: list[str] = typer.Option(None, "--path", help="Only verify these files/folders (repeatable)"),
+    max_scenarios: int = typer.Option(8, help="Cap on scenarios executed per run"),
+    timeout: int = typer.Option(300, help="Per-scenario sandbox timeout (seconds)"),
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+    force_regenerate: bool = typer.Option(
+        False, "--force-regenerate", help="Bypass the scenario-gen cache and ask the model fresh"
+    ),
+):
+    """Verify the obvious thing - no flags to think about.
+
+    Uncommitted changes present -> verifies the working tree (intent read
+    from .verdict/INTENT.md). Clean tree -> verifies the last commit (intent
+    from its message). The chosen scope is printed up front; use `verdict
+    run` with explicit flags whenever the inference isn't what you want.
+    Exit codes: same contract as `run` (0 LOW / 1 risky / 2 couldn't verify)."""
+    if as_json:
+        ui.route_to_stderr()
+    repo = Path.cwd()
+    config = load_config()
+
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--", ".", ":(exclude).verdict"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    ).stdout.strip()
+
+    if dirty:
+        intent_file = repo / ".verdict" / "INTENT.md"
+        intent_text = ""
+        if intent_file.exists():
+            lines = intent_file.read_text(encoding="utf-8").splitlines()
+            intent_text = "\n".join(l for l in lines if not l.lstrip().startswith("#")).strip()
+        if not intent_text:
+            ui.stage_fail(
+                "check",
+                "uncommitted changes found, but no intent to verify them against - "
+                f"write what you're building in {intent_file.relative_to(repo)}, "
+                "or pass it explicitly: verdict run --intent \"...\"",
+            )
+            raise typer.Exit(code=2)
+        if (reason := check_vagueness(intent_text)) is not None:
+            ui.stage_fail("check", f"intent in .verdict/INTENT.md is too vague to verify against: {reason}")
+            raise typer.Exit(code=2)
+        ui.stage_note("check", "uncommitted changes found - verifying the working tree (intent from .verdict/INTENT.md)")
+        params = PipelineParams(intent=intent_text, paths=path, max_scenarios=max_scenarios,
+                                timeout=timeout, force_regenerate=force_regenerate)
+    else:
+        ui.stage_note("check", "working tree clean - verifying the last commit (intent from its message)")
+        params = PipelineParams(paths=path, max_scenarios=max_scenarios,
+                                timeout=timeout, force_regenerate=force_regenerate)
+
+    _run_and_finish(params, config, repo, as_json)
 
 
 INTENT_TEMPLATE = """\
@@ -642,6 +708,114 @@ def config_set(key: str, value: str):
     if key == "provider" and value != "ollama":
         ui.stage_warn("privacy", "cloud provider: diffs and intents WILL leave this machine")
         ui.console.print(f"      [dim]set your key:[/] [cyan]verdict config set api_key <key>[/] [dim](or {llm.API_KEY_ENV} env var)[/]")
+
+
+profile_app = typer.Typer(add_completion=False, help="Named provider profiles: set up once, switch by name forever.")
+app.add_typer(profile_app, name="profile")
+
+_PROFILE_FIELDS = ("provider", "model", "api_key", "base_url", "ollama_url")
+
+
+@profile_app.command("save")
+def profile_save(name: str = typer.Argument(..., help="Profile name, e.g. 'groq' or 'local'")):
+    """Snapshot the CURRENT provider settings under a name.
+
+    Day-to-day switching then never involves typing a secret again -
+    `verdict use <name>` applies the whole set (the exact leak path this
+    closes: pasting api keys into terminals repeatedly)."""
+    config = load_config()
+    config.profiles[name] = {k: getattr(config, k) for k in _PROFILE_FIELDS}
+    save_config(config)
+    audit.append("config_change", {"profile_saved": name})
+    ui.stage_ok("profile", f"saved '{name}' = {config.provider} / {config.model}")
+    ui.console.print(f"      [dim]switch anytime:[/] [cyan]verdict use {name}[/]")
+
+
+@profile_app.command("list")
+def profile_list():
+    """Show saved profiles (keys always masked)."""
+    config = load_config()
+    if not config.profiles:
+        ui.stage_warn("profile", "no profiles saved yet - configure a provider, then: verdict profile save <name>")
+        return
+    for name, values in config.profiles.items():
+        current = all(getattr(config, k) == v for k, v in values.items())
+        tag = "  [green](active)[/]" if current else ""
+        key_note = f"  [dim]key {_masked_config(values).get('api_key') or 'none'}[/]"
+        ui.console.print(f"  [cyan]{name:12}[/] {values.get('provider')} / {values.get('model')}{key_note}{tag}")
+
+
+@profile_app.command("delete")
+def profile_delete(name: str):
+    config = load_config()
+    if name not in config.profiles:
+        _fail("profile", f"no profile named '{name}' (saved: {', '.join(config.profiles) or 'none'})")
+    del config.profiles[name]
+    save_config(config)
+    audit.append("config_change", {"profile_deleted": name})
+    ui.stage_ok("profile", f"deleted '{name}'")
+
+
+@app.command()
+def use(name: str = typer.Argument(..., help="Profile to switch to (see: verdict profile list)")):
+    """Switch provider/model/key in one word - no secrets typed, ever."""
+    config = load_config()
+    if name not in config.profiles:
+        _fail("use", f"no profile named '{name}' (saved: {', '.join(config.profiles) or 'none - see: verdict profile save'})")
+    before = _masked_config(asdict(config))
+    for k, v in config.profiles[name].items():
+        setattr(config, k, v)
+    save_config(config)
+    audit.append("config_change", {"profile_applied": name, "before": before, "after": _masked_config(asdict(config))})
+    ui.stage_ok("use", f"'{name}' active: {config.provider} / {config.model}")
+    if config.provider != "ollama":
+        ui.stage_warn("privacy", "cloud provider: diffs and intents WILL leave this machine")
+
+
+scenario_app = typer.Typer(add_completion=False, help="Author scenarios without ever opening a YAML file.")
+app.add_typer(scenario_app, name="scenario")
+
+_SCENARIOS_FILE = Path(".verdict") / "scenarios" / "scenarios.yaml"
+
+
+@scenario_app.command("add")
+def scenario_add(
+    name: str = typer.Option(None, help="short_snake_case name (prompted if omitted)"),
+    description: str = typer.Option(None, help="One sentence: what must be true (prompted if omitted)"),
+):
+    """Add a scenario interactively - hand-authored scenarios are the
+    highest-signal input in the system; this makes them a prompt, not a
+    file format to learn."""
+    from verdict.authoring import append_scenario
+
+    if name is None:
+        name = ui.console.input("  [bold cyan]scenario name[/] [dim](short_snake_case, e.g. limit_is_per_account)[/] > ").strip()
+    if description is None:
+        description = ui.console.input("  [bold cyan]what must be true?[/] [dim](one sentence, name the functions/values involved)[/] > ").strip()
+    target = Path.cwd() / _SCENARIOS_FILE
+    try:
+        count = append_scenario(target, name, description)
+    except AuthoringError as e:
+        _fail("scenario", str(e))
+    ui.stage_ok("scenario", f"'{name}' added - {count} scenario(s) in {_SCENARIOS_FILE}")
+    ui.console.print(f"      [dim]run them:[/] [cyan]verdict run --scenarios {_SCENARIOS_FILE}[/]"
+                     f"  [dim]or combined:[/] [cyan]verdict run --scenarios {_SCENARIOS_FILE} --hybrid[/]")
+
+
+@scenario_app.command("list")
+def scenario_list():
+    """Show authored scenarios."""
+    from verdict.authoring import load_scenarios
+
+    target = Path.cwd() / _SCENARIOS_FILE
+    try:
+        gen = load_scenarios(target)
+    except AuthoringError as e:
+        ui.stage_warn("scenario", f"{e} - add one with: verdict scenario add")
+        return
+    ui.stage_ok("scenario", f"{len(gen.scenarios)} authored scenario(s) in {_SCENARIOS_FILE}")
+    for s in gen.scenarios:
+        ui.scenario_line(s.name, s.description)
 
 
 @app.command("install-hook")
@@ -880,6 +1054,8 @@ def logs(run_id: str = typer.Argument("last", help="Run to inspect ('last' = new
         _fail("logs", f"no run named {run_id} under .verdict/runs/")
     ui.console.print(f"[bold cyan]run[/]     {record['run_id']}  [dim]({record['created_at']})[/]")
     ui.console.print(f"[bold cyan]model[/]   {record['model']}")
+    if record.get("scope"):
+        ui.console.print(f"[bold cyan]checked[/] {record['scope']}")
     intent_txt = record.get("intent") or "(never extracted)"
     ui.console.print(f"[bold cyan]intent[/]  {intent_txt.splitlines()[0]}")
     for ov in record.get("overrides", []):

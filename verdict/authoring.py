@@ -41,6 +41,49 @@ def write_template(path: Path, intent: str = "") -> Path:
     return path
 
 
+def append_scenario(path: Path, name: str, description: str, intent: str = "") -> int:
+    """Add one scenario to a file without the user ever opening it - the
+    `verdict scenario add` backend. Creates the file if missing. Returns the
+    new scenario count.
+
+    Note: an existing file is parsed and re-dumped, so hand-written comments
+    don't survive - by design, the whole point of `scenario add` is that
+    nobody hand-edits this file."""
+    name = name.strip()
+    description = description.strip()
+    if not name or not description:
+        raise AuthoringError("a scenario needs both a name and a description")
+    if not all(c.isalnum() or c == "_" for c in name):
+        raise AuthoringError(f"scenario name '{name}' must be short_snake_case (letters, digits, underscores)")
+
+    if path.exists():
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as e:
+            raise AuthoringError(f"could not parse existing {path.name}: {e}") from e
+        if not isinstance(data, dict):
+            raise AuthoringError(f"{path.name} is not a scenario file")
+    else:
+        data = {"intent": intent.replace('"', "'").splitlines()[0] if intent else ""}
+    scenarios = data.setdefault("scenarios", [])
+    if not isinstance(scenarios, list):
+        raise AuthoringError(f"{path.name} has a non-list 'scenarios' key")
+    # drop unedited template placeholders the moment a real scenario arrives
+    scenarios[:] = [s for s in scenarios if not str((s or {}).get("name", "")).startswith("example_")]
+    if any(str((s or {}).get("name", "")) == name for s in scenarios):
+        raise AuthoringError(f"a scenario named '{name}' already exists in {path.name}")
+    scenarios.append({"name": name, "description": description})
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "# Verdict scenario file - managed by `verdict scenario add`; run with:\n"
+        "#   verdict run --scenarios <this file>   (or --hybrid to combine with generated ones)\n"
+        + yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return len(scenarios)
+
+
 def load_scenarios(path: Path) -> GenerationResult:
     if not path.exists():
         raise AuthoringError(f"scenario file not found: {path}")

@@ -50,6 +50,23 @@ class PipelineParams:
     def mode(self) -> str:
         return "hybrid" if self.hybrid else ("manual" if self.scenarios_file else "autonomous")
 
+    @property
+    def scope(self) -> str:
+        """One line saying exactly what is being verified - shown up front on
+        every run and stored in the record, so nobody has to reconstruct
+        'what did this actually check' from scattered output."""
+        if self.base:
+            desc = f"commit range {self.base}..{self.ref or 'HEAD'}"
+        elif self.ref:
+            desc = f"single commit {self.ref}"
+        elif self.intent is not None:
+            desc = "uncommitted working tree vs HEAD"
+        else:
+            desc = "last commit (HEAD)"
+        if self.paths:
+            desc += f", limited to {', '.join(self.paths)}"
+        return desc
+
 
 class PipelineEvents:
     """Presentation hooks. Every method is a no-op by default so a headless
@@ -151,6 +168,7 @@ def execute_pipeline(
         record = build_incomplete_record(
             run_id, a.status, a.stage, a.message, llm.model_id(config), holder.value, tokens
         )
+        record["scope"] = params.scope
         save_run(record, repo)
         audit.append(f"run_{a.status}", {"stage": a.stage, "reason": a.message}, run_id=run_id, root=repo)
         events.stage_fail(a.stage, a.message)
@@ -164,6 +182,7 @@ def execute_pipeline(
         events.stage_ok("score", risk.level)
         record = build_record(run_id, holder.value, u.generation, [], risk, llm.model_id(config), tokens)
         record["note"] = u.note
+        record["scope"] = params.scope
         save_run(record, repo)
         audit.append(
             "run_completed",
@@ -202,6 +221,7 @@ def _execute(
         run_id=run_id,
         root=repo,
     )
+    events.stage_note("scope", params.scope)
 
     # [1/6] config
     with events.working("checking dependencies..."):
@@ -365,6 +385,7 @@ def _execute(
     events.stage_ok("score", risk.level)
 
     record = build_record(run_id, intent_result, generation, results, risk, llm.model_id(config), tokens)
+    record["scope"] = params.scope
     if ungeneratable:
         record["ungeneratable"] = [s.name for s in ungeneratable]
     if downgraded:

@@ -131,10 +131,15 @@ def latest_run_id(root: Path | None = None) -> str | None:
 def format_terminal(record: dict) -> str:
     risk = record["risk"]
     lines = []
+    if record.get("scope"):
+        lines.append(f"Checked: {record['scope']}  (model: {record.get('model', '?')})")
     coverage = risk["coverage"]
     coverage_txt = f" - coverage {coverage:.0%}" if coverage is not None else ""
     if risk.get("inconclusive"):
         coverage_txt += f" ({risk['inconclusive']} scenario(s) produced no evidence, excluded)"
+    executed = len(record.get("results") or [])
+    planned = executed + len(record.get("ungeneratable") or []) + len(record.get("scenario_cap_dropped") or [])
+    coverage_txt += f" - {executed}/{planned} planned scenario(s) executed"
     lines.append(f"{risk['level']} RISK - {risk['passed']}/{risk['passed'] + risk['failed']} conclusive passed{coverage_txt}")
     cap_dropped = record.get("scenario_cap_dropped") or []
     if cap_dropped:
@@ -230,6 +235,11 @@ def render_html(record: dict) -> str:
         # plain "·", not the &middot; HTML entity - this string goes through
         # _esc() below, which would escape the literal "&" into "&amp;middot;"
         coverage_txt += f" · {risk['inconclusive']} scenario(s) produced no evidence and were excluded from that figure"
+    executed = len(record.get("results") or [])
+    planned = executed + len(record.get("ungeneratable") or []) + len(record.get("scenario_cap_dropped") or [])
+    coverage_txt += f" · {executed}/{planned} planned scenario(s) executed"
+    if record.get("scope"):
+        coverage_txt = f"checked {record['scope']} · " + coverage_txt
     tokens = record.get("tokens") or {}
     tokens_txt = (
         f"{tokens.get('llm_calls', 0)} LLM call(s) &middot; {tokens.get('prompt_tokens', 0):,} tokens in / "

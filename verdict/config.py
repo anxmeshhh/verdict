@@ -10,7 +10,7 @@ Phase 1 scope only: no DB/Redis here yet (Section 12, Phase 1 = CLI only).
 import json
 import urllib.request
 import urllib.error
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 CONFIG_DIRNAME = ".verdict"
@@ -33,6 +33,10 @@ class Config:
     # commands prefer it. Empty = file store only (the Phase 1 default).
     # VERDICT_DATABASE_URL env var takes precedence.
     database_url: str = ""
+    # Named provider profiles: set up once (verdict profile save <name>),
+    # switch by name forever after (verdict use <name>) - so day-to-day
+    # provider switching never involves typing a secret again.
+    profiles: dict = field(default_factory=dict)
 
 
 def config_dir(root: Path | None = None) -> Path:

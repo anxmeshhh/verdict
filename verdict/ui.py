@@ -92,9 +92,12 @@ def shell_help() -> None:
     table = Table.grid(padding=(0, 3))
     table.add_column(style="cyan", justify="left")
     table.add_column(style="dim")
+    table.add_row("check", "verify the obvious thing - no flags (uncommitted changes, else last commit)")
     table.add_row("run [options]", "verify a change (--ref, --base, --intent, --scenarios, --hybrid, --force-regenerate)")
     table.add_row("watch [options]", "live mode: verify automatically when the working tree settles")
     table.add_row("plan [options]", "dry-run: show scenarios without executing (--manual writes a template)")
+    table.add_row("scenario add", "author a scenario interactively - highest-signal input, no YAML to learn")
+    table.add_row("use <profile>", "switch provider by name, no secrets typed (see: profile save/list)")
     table.add_row("runs", "browse past verdicts as a table")
     table.add_row("report [run-id]", "export a run as a shareable HTML page ('last' = newest)")
     table.add_row("logs [run-id]", "full evidence for a past run ('last' = newest)")
@@ -161,11 +164,19 @@ def verdict_panel(record: dict) -> None:
     coverage = risk["coverage"]
     conclusive = risk["passed"] + risk["failed"]
     inconclusive = risk.get("inconclusive", 0)
+    # Two numbers, always - "executed of planned" - so nobody has to trust
+    # that nothing was quietly excluded; they can see the counts disagree.
+    executed = len(record.get("results") or [])
+    planned = executed + len(record.get("ungeneratable") or []) + len(record.get("scenario_cap_dropped") or [])
     headline = Text()
     headline.append(f" {level} RISK ", style=style)
     if coverage is not None:
         headline.append(f"  {risk['passed']}/{conclusive} conclusive passed", style="bold")
         headline.append(f"  {DOT}  coverage {coverage:.0%}", style="dim")
+        headline.append(
+            f"  {DOT}  {executed}/{planned} planned scenario(s) executed",
+            style="dim" if executed == planned else "bold yellow",
+        )
         # Coverage is deliberately computed over conclusive results only
         # (uncertain/error/timeout are non-evidence, not a strike against the
         # change) - but that means a scenario the model couldn't check at all
@@ -202,6 +213,8 @@ def verdict_panel(record: dict) -> None:
         f"  [dim]run[/] [bold]{record['run_id']}[/]"
         f"   [dim]full evidence:[/] [cyan]verdict logs {record['run_id']}[/]"
     )
+    if record.get("scope"):
+        footer = f"  [dim]checked[/] {record['scope']}   [dim]model[/] {record.get('model', '?')}\n" + footer
     tokens = record.get("tokens") or {}
     if tokens.get("llm_calls"):
         footer += (
