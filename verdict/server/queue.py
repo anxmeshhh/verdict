@@ -81,6 +81,7 @@ def execute_run_task(self, job_id: int):
 
     params_dict = dict(job["params"])
     repo = Path(params_dict.pop("repo_path"))
+    github_ctx = params_dict.pop("github", None)
     run_id = job["run_id"]
     config = load_config(repo)
 
@@ -105,4 +106,21 @@ def execute_run_task(self, job_id: int):
     # regardless, so write it explicitly (idempotent upsert).
     store.save_run_record(url, outcome.record)
     store.update_job(url, job_id, outcome.status)
-    return {"job_id": job_id, "run_id": run_id, "status": outcome.status, "risk": outcome.risk_level}
+
+    check_posted = None
+    if github_ctx:
+        # Module 11: the verdict lands on the PR, where reviewers already look.
+        from verdict.server import github as gh
+
+        try:
+            gh.post_check_run(github_ctx["repo_full_name"], github_ctx["head_sha"], outcome.record, outcome.status)
+            check_posted = True
+        except gh.GitHubError as e:
+            # The run itself succeeded and is fully recorded - a failed check
+            # post is loud in the job status, never silently swallowed.
+            check_posted = False
+            store.update_job(url, job_id, f"{outcome.status}:check_post_failed")
+            print(f"verdict worker: check post failed for job {job_id}: {e}")
+
+    return {"job_id": job_id, "run_id": run_id, "status": outcome.status,
+            "risk": outcome.risk_level, "check_posted": check_posted}

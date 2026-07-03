@@ -162,6 +162,59 @@ def format_terminal(record: dict) -> str:
     return "\n".join(lines)
 
 
+_GITHUB_RISK_EMOJI = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴", "UNVERIFIED": "⚪"}
+_GITHUB_STATUS_MARK = {
+    "passed": "✅ PASSED",
+    "failed": "❌ FAILED",
+    "uncertain": "🟡 UNCLEAR",
+    "error": "⚙️ BAD TEST",
+    "timeout": "⏱️ TIMEOUT",
+}
+
+
+def format_github(record: dict) -> str:
+    """Markdown check body / PR comment - Module 11's output surface. Same
+    honesty rules as every other format: scope up front, executed-vs-planned
+    always visible, inconclusive and cap-dropped scenarios called out."""
+    status = record.get("status", "completed")
+    risk = record.get("risk") or {}
+    level = risk.get("level", status.upper())
+    lines = [f"## {_GITHUB_RISK_EMOJI.get(level, '⚪')} Verdict: {level}" + (" RISK" if status == "completed" and level != "UNVERIFIED" else "")]
+
+    if record.get("scope"):
+        lines.append(f"**Checked:** {record['scope']}  (model: `{record.get('model', '?')}`)")
+
+    if status != "completed":
+        lines.append(f"\nRun **{record.get('status')}** at stage `{record.get('failed_stage', '?')}`: {record.get('reason', '')}")
+        lines.append("\n> Verdict could not verify this change - that is a checker problem to fix, not evidence the code is safe OR risky.")
+    else:
+        coverage = risk.get("coverage")
+        executed = len(record.get("results") or [])
+        planned = executed + len(record.get("ungeneratable") or []) + len(record.get("scenario_cap_dropped") or [])
+        summary = f"**{risk.get('passed', 0)}/{risk.get('passed', 0) + risk.get('failed', 0)} conclusive scenarios passed**"
+        if coverage is not None:
+            summary += f" · coverage {coverage:.0%}"
+        summary += f" · {executed}/{planned} planned scenarios executed"
+        lines.append(summary)
+
+        if record.get("results"):
+            lines.append("\n| scenario | result | evidence |")
+            lines.append("|---|---|---|")
+            for r in record["results"]:
+                first = (r.get("stdout", "").strip().splitlines() or [""])[0][:80].replace("|", "\\|")
+                lines.append(f"| `{r['scenario_name']}` | {_GITHUB_STATUS_MARK.get(r['status'], r['status'])} | {first} |")
+
+        for reason in risk.get("reasons", []):
+            lines.append(f"- {reason}")
+        if record.get("scenario_cap_dropped"):
+            lines.append(f"- ⚠️ **{len(record['scenario_cap_dropped'])} validated scenario(s) NOT run** (--max-scenarios cap): {', '.join(record['scenario_cap_dropped'])}")
+        for ov in record.get("overrides", []):
+            lines.append(f"- 🔓 **OVERRIDDEN** by {ov.get('actor')}: {ov.get('reason')}")
+
+    lines.append(f"\n<sub>run `{record.get('run_id')}` · proof, not vibes · full evidence: `verdict logs {record.get('run_id')}`</sub>")
+    return "\n".join(lines)
+
+
 _HTML_RISK_COLORS = {
     "LOW": "#22c55e",
     "MEDIUM": "#eab308",
@@ -306,8 +359,10 @@ def save_html(record: dict, root: Path | None = None) -> Path:
 
 
 def format_json(record: dict) -> str:
-    """Machine-readable output - everything except the bulky audit fields."""
+    """Machine-readable output - everything except the bulky audit fields.
+    Works for incomplete (errored/skipped) records too: --json must always
+    emit exactly one JSON object, whatever happened to the run."""
     slim = {k: v for k, v in record.items() if k not in ("diff", "generation_prompt", "generation_raw_response")}
-    for r in slim["results"]:
+    for r in slim.get("results", []):
         r.pop("test_code", None)
     return json.dumps(slim, indent=2)

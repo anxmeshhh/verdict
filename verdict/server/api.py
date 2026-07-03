@@ -14,11 +14,12 @@ Honesty rules (Section 11):
   observable while it's unhealthy.
 """
 import hashlib
+import json
 import os
 import subprocess
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from verdict import health as health_mod
@@ -222,6 +223,74 @@ def metrics():
         f"verdict_queue_depth {depth}",
     ]
     return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+
+
+@app.post("/webhooks/github")
+async def github_webhook(request: Request):
+    """PR opened/updated -> verify signature -> clone/fetch -> enqueue.
+
+    The check run is posted by the worker when the run finishes; this
+    endpoint only validates and queues (Stage 1 of the doc's workflow:
+    'webhook fires, job queued, deduped on commit SHA')."""
+    from verdict.server import github as gh
+
+    secret = os.environ.get(gh.WEBHOOK_SECRET_ENV, "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail=f"webhooks disabled - set {gh.WEBHOOK_SECRET_ENV}")
+    body = await request.body()
+    if not gh.verify_signature(body, request.headers.get("X-Hub-Signature-256"), secret):
+        raise HTTPException(status_code=401, detail="bad or missing X-Hub-Signature-256")
+
+    event = request.headers.get("X-GitHub-Event", "")
+    if event == "ping":
+        return {"ok": True, "detail": "pong"}
+    if event != "pull_request":
+        return {"ok": True, "detail": f"event '{event}' ignored - only pull_request triggers verification"}
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="payload is not JSON")
+    pr = gh.parse_pull_request_event(payload)
+    if pr is None:
+        return {"ok": True, "detail": f"action '{payload.get('action')}' ignored"}
+
+    url = database_url()
+    db_ok, db_detail = store.check(url)
+    if not db_ok:
+        raise HTTPException(status_code=503, detail=f"postgres down - refusing new work: {db_detail}")
+
+    try:
+        repo = gh.prepare_repo(pr["clone_url"], pr["repo_full_name"], pr["head_sha"])
+    except gh.GitHubError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    config = load_config(repo)
+    dedupe_key = hashlib.sha256(
+        f"gh|{pr['repo_full_name']}|{pr['base_sha']}|{pr['head_sha']}|{config.model}|v{CACHE_VERSION}".encode()
+    ).hexdigest()[:32]
+    params = {
+        "repo_path": str(repo.resolve()),
+        "base": pr["base_sha"], "ref": pr["head_sha"], "intent": pr["intent"],
+        "paths": None, "max_scenarios": 8, "timeout": 300, "force_regenerate": False,
+        "github": {"repo_full_name": pr["repo_full_name"], "head_sha": pr["head_sha"], "pr_number": pr["pr_number"]},
+    }
+    run_id = new_run_id()
+    store.init_schema(url)
+    job, created = store.create_job(url, dedupe_key, params, run_id)
+    if not created:
+        return {"ok": True, "deduped": True, "job_id": job["job_id"], "run_id": job["run_id"],
+                "detail": "this commit is already queued/verified for this model"}
+
+    from verdict.server.queue import execute_run_task
+
+    try:
+        execute_run_task.delay(job["job_id"])
+    except Exception as e:
+        store.delete_job(url, job["job_id"])
+        raise HTTPException(status_code=503, detail=f"could not enqueue (broker down?): {e}")
+    return {"ok": True, "deduped": False, "job_id": job["job_id"], "run_id": run_id,
+            "pr": pr["pr_number"], "head_sha": pr["head_sha"]}
 
 
 @app.get("/", dependencies=[Depends(require_api_key)])

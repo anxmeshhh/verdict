@@ -516,14 +516,18 @@ def _run_and_finish(params: PipelineParams, config: Config, repo: Path, as_json:
 
     outcome = execute_pipeline(params, config, repo, events=_CliEvents())
 
+    if as_json:
+        # ALWAYS exactly one JSON object on stdout, whatever happened - an
+        # errored run emits its incomplete record too; a consumer must never
+        # have to guess from an empty stream (never-silent rule).
+        typer.echo(format_json(outcome.record))
+    elif outcome.status not in ("errored", "skipped"):
+        ui.verdict_panel(outcome.record)
+
     if outcome.status in ("errored", "skipped"):
         # verdict couldn't produce evidence either way - that is NOT the same
         # signal as "the code is risky", and CI must be able to tell them apart
         raise typer.Exit(code=2)
-    if as_json:
-        typer.echo(format_json(outcome.record))
-    else:
-        ui.verdict_panel(outcome.record)
     if outcome.status == "unverified":
         raise typer.Exit(code=1)
     raise typer.Exit(code=0 if outcome.risk_level == "LOW" else 1)

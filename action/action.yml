@@ -1,0 +1,98 @@
+name: 'Verdict'
+description: 'Proof, not vibes - verifies a PR actually does what it claims, via generated tests executed in a sandbox'
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  provider:
+    description: 'LLM provider: groq | openrouter | gemini | openai | custom (runners have no Ollama - bring an API provider)'
+    required: true
+  model:
+    description: 'Model id at that provider, e.g. llama-3.3-70b-versatile'
+    required: true
+  api-key:
+    description: 'Provider API key - pass a repo secret, e.g. ${{ secrets.VERDICT_API_KEY }}'
+    required: true
+  base-url:
+    description: 'Only for provider=custom: an OpenAI-compatible endpoint'
+    required: false
+    default: ''
+  max-scenarios:
+    description: 'Cap on scenarios executed'
+    required: false
+    default: '8'
+  post-comment:
+    description: 'Also post the verdict as a PR comment (needs pull-requests: write)'
+    required: false
+    default: 'true'
+  fail-on-risk:
+    description: 'Fail the workflow step when the verdict is not LOW'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'Token used to post the check run / comment'
+    required: false
+    default: ${{ github.token }}
+
+# The workflow using this action needs:
+#   permissions: { checks: write, pull-requests: write }
+#   actions/checkout with fetch-depth: 0   (the PR base SHA must exist locally)
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install verdict
+      shell: bash
+      run: pip install --quiet "$GITHUB_ACTION_PATH/.."
+
+    - name: Verify the PR range
+      id: verdict
+      shell: bash
+      env:
+        VERDICT_API_KEY: ${{ inputs.api-key }}
+      run: |
+        cd "$GITHUB_WORKSPACE"
+        verdict config set provider "${{ inputs.provider }}"
+        verdict config set model "${{ inputs.model }}"
+        if [ -n "${{ inputs.base-url }}" ]; then verdict config set base_url "${{ inputs.base-url }}"; fi
+
+        BASE="${{ github.event.pull_request.base.sha }}"
+        HEAD="${{ github.event.pull_request.head.sha }}"
+        if [ -z "$BASE" ] || [ -z "$HEAD" ]; then
+          echo "::error::no pull_request context - run this action on pull_request events"
+          exit 2
+        fi
+
+        set +e
+        verdict run --base "$BASE" --ref "$HEAD" --max-scenarios "${{ inputs.max-scenarios }}" --json > verdict-result.json
+        CODE=$?
+        set -e
+        echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+        echo "verdict exit code: $CODE (0=LOW, 1=risky, 2=could-not-verify)"
+
+    - name: Post check run and comment
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        POST_COMMENT: ${{ inputs.post-comment }}
+      run: |
+        python "$GITHUB_ACTION_PATH/post_check.py" \
+          "$GITHUB_WORKSPACE/verdict-result.json" \
+          "${{ steps.verdict.outputs.exit_code }}"
+
+    - name: Gate on the verdict
+      shell: bash
+      run: |
+        CODE="${{ steps.verdict.outputs.exit_code }}"
+        if [ "$CODE" = "0" ]; then
+          echo "verdict: LOW risk - proceeding"
+        elif [ "$CODE" = "2" ]; then
+          echo "::error::verdict could not verify this change (checker problem, not code risk) - failing safe"
+          exit 2
+        elif [ "${{ inputs.fail-on-risk }}" = "true" ]; then
+          echo "::error::verdict found risk in this change - see the check run for evidence"
+          exit 1
+        else
+          echo "::warning::verdict found risk, but fail-on-risk is off - not blocking"
+        fi

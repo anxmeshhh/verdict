@@ -1,0 +1,26 @@
+# Copy to .github/workflows/verdict.yml in the repo you want checked.
+# One-time setup: add a repo secret named VERDICT_API_KEY (your provider key).
+name: verdict
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  checks: write          # post the check run
+  pull-requests: write   # post the PR comment
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the PR base SHA must exist locally for the range diff
+
+      - uses: anxmeshhh/verdict/action@master
+        with:
+          provider: groq
+          model: llama-3.3-70b-versatile
+          api-key: ${{ secrets.VERDICT_API_KEY }}

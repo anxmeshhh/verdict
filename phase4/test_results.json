@@ -1,0 +1,114 @@
+{
+  "suite": "Phase 4 - GitHub integration (local verification; live gate = action/ on a real PR)",
+  "ran_at": "2026-07-03T22:15:35.392239+00:00",
+  "checks": [
+    {
+      "check": "signature_valid_accepted",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "signature_tampered_rejected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "signature_missing_rejected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "signature_wrong_scheme_rejected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "pr_event_parsed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "closed_action_ignored",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "clone_and_checkout_head",
+      "ok": true,
+      "detail": "working tree == PR head commit"
+    },
+    {
+      "check": "reprep_moves_working_tree",
+      "ok": true,
+      "detail": "second prep correctly checked out the base commit instead"
+    },
+    {
+      "check": "conclusion_low_success",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "conclusion_high_failure",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "conclusion_unverified_failure",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "conclusion_errored_neutral",
+      "ok": true,
+      "detail": "checker broke != code risky"
+    },
+    {
+      "check": "markdown_has_verdict_and_table",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "markdown_errored_is_neutral_phrased",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "check_run_payload_shape",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "webhook_bad_signature_401",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "webhook_ping_pong",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "webhook_non_pr_event_ignored",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "webhook_pr_creates_and_enqueues_job",
+      "ok": true,
+      "detail": "job 15, run run_fbbfa3"
+    },
+    {
+      "check": "webhook_same_head_sha_deduped",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "webhook_disabled_without_secret",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "passed": 21,
+  "total": 21,
+  "all_passed": true
+}
