@@ -52,6 +52,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Auto `.gitignore` for `.verdict/` on init/model | `verdict/config.py`, `verdict/cli.py` | correctness fix |
 | Pre-push hook: remote-name + silent-skip fix | `verdict/hooks.py` | correctness fix |
 | `--json` stdout purity (progress routed to stderr) | `verdict/ui.py`, `verdict/cli.py` | correctness fix |
+| Silent `--max-scenarios` cap drop made visible | `verdict/cli.py`, `verdict/ui.py`, `verdict/reporter.py` | correctness fix |
 | Inconclusive-scenario visibility in coverage displays | `verdict/ui.py`, `verdict/reporter.py` | correctness fix |
 | Generalized unsupported-behavior-claim guard | `verdict/validator.py` | correctness fix |
 
@@ -182,6 +183,9 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P1]** Verified both directions: with `--json`, stdout is exactly the JSON blob (parses cleanly, nothing before/after) and all progress lines land on stderr instead; without `--json`, behavior is completely unchanged (progress still goes to stdout as before) - no regression for interactive/human use
 - [ ] **[P1]** `--path` works consistently across `run`, `plan`, and `watch`
 - [ ] **[P0]** Exit code is 0 only when risk is `LOW`; every other outcome (MEDIUM/HIGH/UNVERIFIED/errored/skipped) exits non-zero
+- [ ] **[P0]** **Regression: `--max-scenarios` silently dropped validated scenarios with zero signal.** Confirmed live via `--hybrid`: `validate` correctly reported "6/6 traceable to the diff," but `kept = kept[:max_scenarios]` (default 4) sliced the list AFTER that line printed, so 2 fully-validated scenarios never became a `GeneratedTest`, never ran, never appeared in `results`, `score()`, `format_json`, or the run record - completely invisible. Confirmed this wasn't a general cap bug: separate 4-scenario and 2-scenario runs executed all their scenarios fine - only the overflow past the cap vanished, silently. The real danger (per the report): if the cap had instead dropped one of the two scenarios that actually caught the planted bug, the run would report a confident, wrong verdict on reduced coverage while still claiming "6/6 traceable" - indistinguishable from a fully-verified run
+- [ ] **[P0]** Fixed: the cap is still the same intentional cost/time control (LLM+sandbox spend per run) - not removed - but now fully explicit everywhere: `ui.stage_warn` at truncation time naming exactly which scenarios were NOT run; `record["scenario_cap_dropped"]` persisted in the run record/JSON; a headline note in `ui.verdict_panel`, `reporter.format_terminal`, `reporter.render_html`, and `ui.runs_table`'s evidence column - the same "silent is the problem, visible is fine" fix applied to `--json`/`.gitignore`/the pre-push hook earlier this session
+- [ ] **[P1]** Verified all 4 display surfaces show the cap-dropped names when present, and show nothing extra on a clean, uncapped run (no regression to normal display)
 
 ## 9. Live watch mode
 

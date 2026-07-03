@@ -604,7 +604,18 @@ def run(
     ui.stage_ok("validate", f"{len(kept)}/{len(validations)} traceable to the diff")
     for v in dropped:
         ui.console.print(f"      [red]x[/] [dim strike]{v.scenario.name}[/] [red dim]{v.reason[:70]}[/]")
+    cap_dropped = kept[max_scenarios:]
     kept = kept[:max_scenarios]
+    if cap_dropped:
+        # A capped scenario never becomes a SandboxResult at all - invisible
+        # to score(), format_json, and the run record alike unless something
+        # says so explicitly. A silent drop here is worse than a FAILED: the
+        # report would look identical to a run that verified everything.
+        ui.stage_warn(
+            "validate",
+            f"running {len(kept)} of {len(kept) + len(cap_dropped)} traceable scenario(s) - "
+            f"--max-scenarios={max_scenarios} cap reached, NOT run: {', '.join(s.name for s in cap_dropped)}",
+        )
 
     # [5/6] sandbox (testgen + execution)
     tests, ungeneratable = [], []
@@ -671,6 +682,8 @@ def run(
         record["ungeneratable"] = [s.name for s in ungeneratable]
     if downgraded:
         record["failure_not_reproduced"] = downgraded
+    if cap_dropped:
+        record["scenario_cap_dropped"] = [s.name for s in cap_dropped]
     save_run(record, repo)
     audit.append(
         "run_completed",

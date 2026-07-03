@@ -129,6 +129,12 @@ def format_terminal(record: dict) -> str:
     if risk.get("inconclusive"):
         coverage_txt += f" ({risk['inconclusive']} scenario(s) produced no evidence, excluded)"
     lines.append(f"{risk['level']} RISK - {risk['passed']}/{risk['passed'] + risk['failed']} conclusive passed{coverage_txt}")
+    cap_dropped = record.get("scenario_cap_dropped") or []
+    if cap_dropped:
+        lines.append(
+            f"  ! {len(cap_dropped)} validated scenario(s) NOT run at all (--max-scenarios cap): "
+            f"{', '.join(cap_dropped)}"
+        )
     lines.append("")
     for r in record["results"]:
         tag = _STATUS_TAGS.get(r["status"], r["status"].upper())
@@ -199,6 +205,12 @@ def render_html(record: dict) -> str:
     reasons = "".join(f"<li>{_esc(reason)}</li>" for reason in risk.get("reasons", []))
     if status != "completed":
         reasons += f"<li>run {_esc(status)} at stage '{_esc(record.get('failed_stage', '?'))}': {_esc(record.get('reason', ''))}</li>"
+    cap_dropped = record.get("scenario_cap_dropped") or []
+    if cap_dropped:
+        reasons += (
+            f"<li><strong>{len(cap_dropped)} validated scenario(s) NOT run at all (--max-scenarios cap):</strong> "
+            f"{_esc(', '.join(cap_dropped))}</li>"
+        )
 
     coverage = risk.get("coverage")
     coverage_txt = f"{coverage:.0%} of validated scenarios reached a conclusive result" if coverage is not None else "no conclusive evidence - human review required"

@@ -178,6 +178,16 @@ def verdict_panel(record: dict) -> None:
             )
     else:
         headline.append("  no conclusive evidence - human review required", style="bold yellow")
+    cap_dropped = record.get("scenario_cap_dropped") or []
+    if cap_dropped:
+        # A capped scenario is a different problem from an inconclusive one:
+        # it was never even attempted, so it's invisible to passed/failed/
+        # coverage math entirely - "traceable" and "conclusive passed" can
+        # both look complete while real, validated coverage was silently cut.
+        headline.append(
+            f"  {DOT}  {len(cap_dropped)} validated scenario(s) NOT run at all (--max-scenarios cap)",
+            style="bold red",
+        )
 
     body = Table.grid(padding=(0, 0))
     body.add_row(headline)
@@ -220,6 +230,8 @@ def runs_table(records: list[dict]) -> None:
             evidence = f"{risk.get('passed', 0)} passed / {risk.get('failed', 0)} failed"
             if risk.get("inconclusive"):
                 evidence += f" / {risk['inconclusive']} no-evidence"
+            if record.get("scenario_cap_dropped"):
+                evidence += f" / {len(record['scenario_cap_dropped'])} not run (cap)"
         else:
             verdict = Text(f" {status.upper()} ", style="bold yellow" if status == "errored" else "dim")
             evidence = f"at {record.get('failed_stage', '?')}"
