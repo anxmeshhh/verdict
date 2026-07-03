@@ -26,6 +26,8 @@ Beyond the doc's Phase 1 scope, also shipped: interactive `verdict` shell, appen
 
 **Next: Phase 2** — control & trust layer (config, override with logged reasons, Postgres data layer). Gate: can answer "why did it flag this" for any run, from stored data alone.
 
+Manual production-readiness checklist for everything above: [`TESTING.md`](./TESTING.md).
+
 ## Phased roadmap
 
 | Phase | Deliverable | Gate to proceed |
