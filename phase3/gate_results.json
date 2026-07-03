@@ -1,0 +1,70 @@
+{
+  "gate": "Phase 3 - 5 concurrent runs, no drops/dupes; honest health",
+  "ran_at": "2026-07-03T22:10:17.796163+00:00",
+  "checks": [
+    {
+      "check": "health_all_up",
+      "ok": true,
+      "detail": "postgres=ok, queue=ok, redis=ok, docker=ok, disk=ok"
+    },
+    {
+      "check": "metrics_prometheus_format",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "five_submitted",
+      "ok": true,
+      "detail": "job ids [8, 9, 11, 10, 12]"
+    },
+    {
+      "check": "five_completed_no_drops",
+      "ok": true,
+      "detail": "statuses=['completed', 'completed', 'completed', 'completed', 'completed'], wall=11.6s"
+    },
+    {
+      "check": "five_distinct_run_ids",
+      "ok": true,
+      "detail": "['run_3bf887', 'run_488741', 'run_5bbb92', 'run_bcd385', 'run_f00966']"
+    },
+    {
+      "check": "five_records_low_risk",
+      "ok": true,
+      "detail": "each: 2 scenarios passed -> LOW"
+    },
+    {
+      "check": "no_double_runs",
+      "ok": true,
+      "detail": "5 jobs, 10 result rows (2 scenarios x 5 runs, no duplicates)"
+    },
+    {
+      "check": "dedupe_same_commit",
+      "ok": true,
+      "detail": "resubmit returned existing job 8"
+    },
+    {
+      "check": "force_bypasses_dedupe",
+      "ok": true,
+      "detail": "forced new job 14"
+    },
+    {
+      "check": "health_reports_redis_down",
+      "ok": true,
+      "detail": "Error 10061 connecting to localhost:6380. No connection could be made "
+    },
+    {
+      "check": "refuses_work_while_down",
+      "ok": true,
+      "detail": "new work refused outright, not queued into an inconsistent state"
+    },
+    {
+      "check": "health_recovers",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "passed": 12,
+  "total": 12,
+  "gate_met": true,
+  "five_run_wall_seconds": 11.6
+}

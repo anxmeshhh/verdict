@@ -1,5 +1,6 @@
 """Module 8 - CLI. The full pipeline as `verdict <command>` with staged visibility."""
 import hashlib
+import os
 import shlex
 import subprocess
 import sys
@@ -386,6 +387,28 @@ def health():
         ui.stage_fail("docker", "daemon not reachable - is Docker Desktop running?")
         exit_code = 1
 
+    # Module 18 extensions - only what's configured gets checked; a plain
+    # CLI setup with no Redis is not "unhealthy", it just has fewer parts.
+    from verdict import health as health_mod
+    from verdict import store
+
+    db_url = store.resolve_database_url(config)
+    if db_url:
+        pg = health_mod.check_postgres(db_url)
+        (ui.stage_ok if pg.ok else ui.stage_fail)("postgres", pg.detail)
+        if pg.ok:
+            q = health_mod.check_queue(db_url)
+            ui.stage_ok("queue", q.detail)
+        else:
+            exit_code = 1
+    if os.environ.get(health_mod.REDIS_URL_ENV, "").strip():
+        r = health_mod.check_redis()
+        (ui.stage_ok if r.ok else ui.stage_fail)("redis", r.detail)
+        if not r.ok:
+            exit_code = 1
+    disk = health_mod.check_disk()
+    (ui.stage_ok if disk.ok else ui.stage_warn)("disk", disk.detail)
+
     raise typer.Exit(code=exit_code)
 
 
@@ -708,6 +731,50 @@ def config_set(key: str, value: str):
     if key == "provider" and value != "ollama":
         ui.stage_warn("privacy", "cloud provider: diffs and intents WILL leave this machine")
         ui.console.print(f"      [dim]set your key:[/] [cyan]verdict config set api_key <key>[/] [dim](or {llm.API_KEY_ENV} env var)[/]")
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Bind address (0.0.0.0 inside docker-compose)"),
+    port: int = typer.Option(8400, help="Port for the API"),
+):
+    """Phase 3 API gateway: POST /runs, GET /runs, /health, /metrics.
+
+    Needs the server extra (pip install 'verdict[server]'), a Postgres
+    (VERDICT_DATABASE_URL) and a Redis (VERDICT_REDIS_URL) - docker-compose
+    up provides all three."""
+    try:
+        import uvicorn
+    except ImportError:
+        _fail("serve", "server deps not installed - run: pip install 'verdict[server]'")
+    from verdict import store
+
+    if not store.resolve_database_url(load_config()):
+        _fail("serve", "server mode needs the data layer - set VERDICT_DATABASE_URL")
+    ui.stage_ok("serve", f"http://{host}:{port}  [dim](docs at /docs, health at /health, metrics at /metrics)[/]")
+    uvicorn.run("verdict.server.api:app", host=host, port=port, log_level="info")
+
+
+@app.command()
+def worker(
+    concurrency: int = typer.Option(
+        None, help="Concurrent jobs = concurrent sandbox containers "
+        "(default: VERDICT_WORKER_CONCURRENCY env or 2 - the doc's MAX_CONCURRENT_SANDBOX_RUNS)"
+    ),
+):
+    """Phase 3 worker: pulls queued runs and executes the same pipeline the CLI uses."""
+    try:
+        from verdict.server.queue import DEFAULT_WORKER_CONCURRENCY, WORKER_CONCURRENCY_ENV, celery_app
+    except ImportError:
+        _fail("worker", "server deps not installed - run: pip install 'verdict[server]'")
+    n = concurrency or int(os.environ.get(WORKER_CONCURRENCY_ENV, DEFAULT_WORKER_CONCURRENCY))
+    # Windows can't fork: solo pool for n=1, threads otherwise. Linux (the
+    # docker-compose case) uses the default prefork pool.
+    argv = ["worker", "--loglevel=info", f"--concurrency={n}"]
+    if sys.platform == "win32":
+        argv.append("--pool=solo" if n == 1 else "--pool=threads")
+    ui.stage_ok("worker", f"starting with concurrency={n} [dim](= max concurrent sandbox containers)[/]")
+    celery_app.worker_main(argv=argv)
 
 
 profile_app = typer.Typer(add_completion=False, help="Named provider profiles: set up once, switch by name forever.")

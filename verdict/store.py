@@ -333,3 +333,77 @@ def check(database_url: str, timeout: float = 5.0) -> tuple[bool, str]:
         return True, "connected"
     except StoreError as e:
         return False, str(e)
+
+
+# --- Phase 3: server-mode job state (Module 10) --------------------------
+# The UNIQUE dedupe_key constraint is the idempotency guard the doc demands
+# ("deduped on commit SHA", "no double-runs") - enforced by Postgres itself,
+# not by application logic that could race.
+
+def _row_to_job(row) -> dict:
+    return {
+        "job_id": row[0],
+        "dedupe_key": row[1],
+        "run_id": row[2],
+        "status": row[3],
+        "params": row[4] if isinstance(row[4], dict) else json.loads(row[4]),
+        "created_at": str(row[5]),
+        "updated_at": str(row[6]),
+    }
+
+
+_JOB_COLS = "id, dedupe_key, run_id, status, params, created_at, updated_at"
+
+
+def create_job(database_url: str, dedupe_key: str, params: dict, run_id: str) -> tuple[dict, bool]:
+    """Insert a queued job, or return the existing one for the same dedupe
+    key. Returns (job, created). Atomic via ON CONFLICT DO NOTHING - two
+    concurrent submits of the same commit can never both insert."""
+    now = datetime.now(timezone.utc).isoformat()
+    with connect(database_url) as conn:
+        inserted = conn.execute(
+            """
+            INSERT INTO jobs (dedupe_key, run_id, status, params, created_at, updated_at)
+            VALUES (%s, %s, 'queued', %s, %s, %s)
+            ON CONFLICT (dedupe_key) DO NOTHING
+            RETURNING """ + _JOB_COLS,
+            (dedupe_key, run_id, json.dumps(params), now, now),
+        ).fetchone()
+        if inserted is not None:
+            return _row_to_job(inserted), True
+        existing = conn.execute(
+            f"SELECT {_JOB_COLS} FROM jobs WHERE dedupe_key = %s", (dedupe_key,)
+        ).fetchone()
+        return _row_to_job(existing), False
+
+
+def get_job(database_url: str, job_id: int) -> dict | None:
+    with connect(database_url) as conn:
+        row = conn.execute(f"SELECT {_JOB_COLS} FROM jobs WHERE id = %s", (job_id,)).fetchone()
+    return _row_to_job(row) if row else None
+
+
+def update_job(database_url: str, job_id: int, status: str) -> None:
+    with connect(database_url) as conn:
+        conn.execute(
+            "UPDATE jobs SET status = %s, updated_at = %s WHERE id = %s",
+            (status, datetime.now(timezone.utc).isoformat(), job_id),
+        )
+
+
+def delete_job(database_url: str, job_id: int) -> None:
+    """Only for a job that never got enqueued (e.g. broker down) - a job row
+    with no queued task behind it would otherwise dedupe-block forever."""
+    with connect(database_url) as conn:
+        conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+
+
+def queue_depth(database_url: str) -> dict:
+    """Counts by status - the Section 11 backpressure signal."""
+    with connect(database_url) as conn:
+        rows = conn.execute("SELECT status, count(*) FROM jobs GROUP BY status").fetchall()
+    counts = {status: n for status, n in rows}
+    counts["pending_total"] = sum(
+        n for s, n in counts.items() if s == "queued" or s.startswith("running") or s == "waiting_on_llm"
+    )
+    return counts
