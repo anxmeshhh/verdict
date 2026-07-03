@@ -14,6 +14,12 @@ HOOK_SCRIPT = f"""#!/bin/sh
 {HOOK_MARKER}
 # Installed by `verdict install-hook`. Remove with `verdict uninstall-hook`.
 # Verifies the exact range being pushed; blocks unless the verdict is LOW.
+#
+# Git passes the remote name as $1 and its URL as $2 to a pre-push hook -
+# never assume it's literally "origin" (upstream, a renamed origin, multiple
+# remotes are all common). $1 is still valid inside the while loop below:
+# a bare `while` doesn't fork a subshell the way `cmd | while` would.
+remote_name=$1
 
 zero=0000000000000000000000000000000000000000
 
@@ -21,9 +27,26 @@ while read local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue   # branch deletion - nothing to verify
 
   if [ "$remote_sha" = "$zero" ]; then
-    # New branch: compare against the merge base with the default branch, if any
-    base=$(git merge-base "$local_sha" origin/HEAD 2>/dev/null)
-    [ -z "$base" ] && continue
+    # New branch: no remote_sha to diff against - fall back to a merge-base
+    # with the remote's default branch. Try the remote's tracked HEAD first,
+    # then common default-branch names, since not every remote has HEAD
+    # tracked locally (e.g. a bare remote added without `remote set-head`).
+    base=$(git merge-base "$local_sha" "refs/remotes/$remote_name/HEAD" 2>/dev/null)
+    if [ -z "$base" ]; then
+      for candidate in main master; do
+        if git rev-parse --verify -q "refs/remotes/$remote_name/$candidate" >/dev/null 2>&1; then
+          base=$(git merge-base "$local_sha" "refs/remotes/$remote_name/$candidate" 2>/dev/null)
+          [ -n "$base" ] && break
+        fi
+      done
+    fi
+    if [ -z "$base" ]; then
+      # Never a silent no-op: an unverified push must never look identical
+      # to a verified one. This is the first push of a genuinely new/orphan
+      # branch with nothing to compare against - nothing CAN be checked yet.
+      echo "verdict: could not determine a base commit for this new branch - skipping verification (nothing was checked)"
+      continue
+    fi
   else
     base=$remote_sha
   fi
@@ -59,7 +82,14 @@ def install(repo: Path) -> Path:
     if path.exists():
         existing = path.read_text(encoding="utf-8", errors="replace")
         if HOOK_MARKER in existing:
-            raise HookError("verdict pre-push hook is already installed")
+            if existing == HOOK_SCRIPT:
+                raise HookError("verdict pre-push hook is already installed and up to date")
+            # A verdict-installed hook from an older version - safe to
+            # replace in place rather than forcing an uninstall/reinstall
+            # round-trip every time the script's own logic gets fixed.
+            path.write_text(HOOK_SCRIPT, encoding="utf-8", newline="\n")
+            path.chmod(0o755)
+            return path
         raise HookError(
             f"a pre-push hook already exists at {path} - not overwriting it. "
             "Merge it manually or remove it first."

@@ -50,6 +50,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Validator: unenforced-type-check hallucination guard | `verdict/validator.py` | correctness fix |
 | Scenario-gen cache (`--force-regenerate`) | `verdict/generator.py`, `verdict/cli.py` | post-Phase-1 |
 | Auto `.gitignore` for `.verdict/` on init/model | `verdict/config.py`, `verdict/cli.py` | correctness fix |
+| Pre-push hook: remote-name + silent-skip fix | `verdict/hooks.py` | correctness fix |
 | Inconclusive-scenario visibility in coverage displays | `verdict/ui.py`, `verdict/reporter.py` | correctness fix |
 | Generalized unsupported-behavior-claim guard | `verdict/validator.py` | correctness fix |
 
@@ -204,6 +205,11 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P0]** Pushing a non-LOW-risk range is blocked
 - [ ] **[P1]** `git push --no-verify` bypasses on purpose
 - [ ] **[P0]** The hook verifies exactly the commit range being pushed, nothing more/less
+- [ ] **[P0]** **Regression: the hook must not silently skip verification on a new-branch push.** Root cause confirmed live with a real bare local remote added under a non-"origin" name: `remote_sha=zero` (first push of a new branch - one of the most common real git workflows, not an edge case) fell back to `git merge-base "$local_sha" origin/HEAD`, which doesn't exist unless the remote happens to be named `origin` AND has `HEAD` tracked locally - neither is guaranteed. The old script's fallback for "no merge-base found" was a bare `continue`: zero output, exit 0, a push that was never checked looks byte-identical to one that passed
+- [ ] **[P0]** Fixed: use `$1` (the remote name git actually passes to a pre-push hook) instead of hardcoding `origin`, and try the remote's tracked `HEAD` first, then `main`/`master` as fallback candidate branch names, before giving up
+- [ ] **[P0]** If truly no base can be determined (genuinely orphaned first branch, remote has nothing to compare against), the hook now prints an explicit "could not determine a base commit - skipping verification (nothing was checked)" line instead of silently exiting - verified this path is reachable and non-silent
+- [ ] **[P0]** Verified end-to-end against a real bare-repo sandbox mirroring the exact reported setup (non-"origin" remote name, no `HEAD` ref tracked, only `main` present): old hook script silently skips with zero output; new hook script correctly resolves the base via the remote's `main` and reaches `verdict run --base <resolved> --ref <local>` with the right arguments
+- [ ] **[P1]** `install-hook` auto-upgrades an outdated verdict-installed hook in place (detected via marker present + content differs) instead of requiring a manual uninstall/reinstall round-trip - verified: outdated hook gets replaced, a second install() call correctly reports "already installed and up to date," and a genuinely foreign (non-verdict) hook is still refused, not clobbered
 
 ## 12. Audit log
 
