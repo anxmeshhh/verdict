@@ -42,6 +42,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | FAILED-result confirmation | `verdict/cli.py` | correctness fix |
 | One-shot provider setup (`init --provider/--api-key/--base-url`) | `verdict/cli.py` | correctness fix |
 | Interactive `model` picker (live-fetched list, `/model` in shell) | `verdict/cli.py` | post-Phase-1 |
+| User-Agent on outgoing cloud requests | `verdict/llm.py` | correctness fix |
 
 ## 1. Config & Setup
 
@@ -58,6 +59,8 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P1]** In the interactive shell, a line starting with `/` (e.g. `/model`) behaves identically to the same word without the slash
 - [ ] **[P0]** **Regression: API key prompt in `model` must accept pasted text.** The prompt is plain (unmasked) input, not `getpass`/`Prompt.ask(password=True)` - hidden-input raw-mode reading is known to silently drop or mangle clipboard-pasted text on Windows terminals, which fed a stale/invalid key straight into the provider call and surfaced as a confusing 403 instead of a clear "key not set" error
 - [ ] **[P1]** Pasted key with stray surrounding quotes/whitespace (common when copying from a quoted source) is stripped before being saved
+- [ ] **[P0]** **Regression: Groq requests must send a real User-Agent.** Groq's API sits behind Cloudflare, which blocks Python's default `Python-urllib/x.y` User-Agent as a bot (Cloudflare error 1010) - a VALID key still got a bare `HTTP 403: Forbidden` with zero auth-related detail, indistinguishable from an actual permission problem. Reproduced directly (curl with the default urllib UA → 403; same request with any normal UA → reaches Groq's real auth layer). Fixed by sending a `User-Agent: verdict-cli/0.1.0` header on every outgoing request in `llm.py` (both chat completions and the /models health check)
+- [ ] **[P1]** Cloud-provider HTTP errors surface the response body (e.g. `{"error": ...}` or a WAF block page), not just the bare status code - needed to tell "bad key" apart from "blocked before it even reached the provider"
 - [ ] **[P1]** `config get` (no key) → lists all keys, `api_key` masked as `****xxxx`
 - [ ] **[P1]** `config set` for each key: `model`, `ollama_url`, `provider`, `api_key`, `base_url`
 - [ ] **[P1]** `config set provider <invalid>` → rejected, config unchanged

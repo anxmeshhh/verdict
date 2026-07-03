@@ -25,6 +25,12 @@ BACKOFF_SECONDS = (1, 5)
 
 API_KEY_ENV = "VERDICT_API_KEY"
 
+# Some providers sit behind a WAF (Groq is behind Cloudflare) that blocks
+# Python's default "Python-urllib/x.y" User-Agent as a bot - a valid key still
+# gets a bare 403 with no auth-related detail at all. Identifying ourselves
+# avoids that entirely.
+USER_AGENT = "verdict-cli/0.1.0"
+
 # name -> OpenAI-compatible base URL (None = needs config.base_url)
 PROVIDERS: dict[str, str | None] = {
     "ollama": None,
@@ -120,6 +126,7 @@ def _call_openai_compatible(
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {api_key}",
+                    "User-Agent": USER_AGENT,
                 },
             )
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
@@ -181,7 +188,8 @@ def check(config: Config, timeout: float = 8.0) -> LLMStatus:
         return LLMStatus(False, [], str(e))
     try:
         req = urllib.request.Request(
-            f"{base_url}/models", headers={"Authorization": f"Bearer {api_key}"}
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {api_key}", "User-Agent": USER_AGENT},
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = json.loads(resp.read().decode("utf-8"))
@@ -191,6 +199,11 @@ def check(config: Config, timeout: float = 8.0) -> LLMStatus:
             known = any(config.model in m or m in config.model for m in models)
         return LLMStatus(True, models, model_known=known)
     except urllib.error.HTTPError as e:
-        return LLMStatus(False, [], f"HTTP {e.code}: {e.reason}")
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", errors="replace")[:200].strip()
+        except OSError:
+            pass
+        return LLMStatus(False, [], f"HTTP {e.code}: {detail or e.reason}")
     except (urllib.error.URLError, OSError, ValueError) as e:
         return LLMStatus(False, [], str(e))
