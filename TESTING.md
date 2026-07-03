@@ -41,6 +41,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Broken-monkeypatch detection | `verdict/testgen.py` | correctness fix |
 | FAILED-result confirmation | `verdict/cli.py` | correctness fix |
 | One-shot provider setup (`init --provider/--api-key/--base-url`) | `verdict/cli.py` | correctness fix |
+| Interactive `model` picker (live-fetched list, `/model` in shell) | `verdict/cli.py` | post-Phase-1 |
 
 ## 1. Config & Setup
 
@@ -50,6 +51,11 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P0]** `verdict init --provider <cloud>` with no `--model` and no prior model for that provider → rejected with a provider-specific model-name hint, config NOT written
 - [ ] **[P1]** Re-running `init` on the SAME provider (e.g. rotating `--api-key`) does NOT demand `--model` again — only an actual provider switch triggers the guard
 - [ ] **[P1]** Switching provider back to `ollama` never requires `--model`
+- [ ] **[P0]** `verdict model` (or `/model` in the shell): picking a cloud provider + entering its API key fetches the REAL model list from that provider's `/models` endpoint - never a hardcoded/guessed list
+- [ ] **[P1]** `model` picker: typing a substring narrows the list (filter-to-one auto-selects); typing a number selects directly; blank keeps the current value at each step
+- [ ] **[P0]** `model` picker: if live listing fails (bad key, provider down), falls back to manual model-id entry instead of crashing or silently guessing
+- [ ] **[P1]** `model` picker: switching provider then blank-entering the API key with no existing key or env var → rejected, config unchanged
+- [ ] **[P1]** In the interactive shell, a line starting with `/` (e.g. `/model`) behaves identically to the same word without the slash
 - [ ] **[P1]** `config get` (no key) → lists all keys, `api_key` masked as `****xxxx`
 - [ ] **[P1]** `config set` for each key: `model`, `ollama_url`, `provider`, `api_key`, `base_url`
 - [ ] **[P1]** `config set provider <invalid>` → rejected, config unchanged

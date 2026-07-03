@@ -92,6 +92,8 @@ def _shell() -> None:
             return
         if not line:
             continue
+        if line.startswith("/"):  # "/model" etc. - familiar slash-command feel, same commands underneath
+            line = line[1:]
         if line in ("exit", "quit", "q"):
             ui.console.print("  [dim]bye - every verdict stays in .verdict/runs/[/]")
             return
@@ -191,6 +193,12 @@ def init(
     if config.provider != "ollama":
         ui.stage_warn("privacy", "cloud provider selected: diffs and intents will leave this machine")
 
+    _verify_llm_ready(config)
+
+
+def _verify_llm_ready(config: Config) -> None:
+    """Live check that the configured provider+model actually works - shared by
+    `init` and `model` so both give the same honest, never-faked confirmation."""
     with ui.working(f"checking {config.provider}..."):
         status = llm.check(config)
     if not status.reachable:
@@ -201,6 +209,122 @@ def init(
         ui.console.print(f"      [dim]run:[/] [cyan]ollama pull {config.model}[/]")
         raise typer.Exit(code=1)
     ui.stage_ok(config.provider, f"reachable, model '{config.model}' ready")
+
+
+PROVIDER_ORDER = ["ollama", "openrouter", "groq", "gemini", "openai", "custom"]
+
+
+def _list_models(config: Config) -> tuple[list[str], str | None]:
+    """Live model list for whichever provider is in `config` - never a guessed
+    or hardcoded list, always what the server/API itself reports right now."""
+    if llm.is_local(config):
+        from verdict.config import check_ollama
+
+        status = check_ollama(config.ollama_url)
+        if not status.reachable:
+            return [], status.error or "ollama not reachable"
+        return status.models, None
+    status = llm.check(config)
+    if not status.reachable:
+        return [], status.error
+    return status.models, None
+
+
+def _pick_from_list(models: list[str], current: str) -> str:
+    """Numbered picker with type-to-filter, so a 300-model catalog (OpenRouter)
+    is still browsable instead of dumping every id on screen at once."""
+    filtered = models
+    while True:
+        shown = filtered[:20]
+        for i, m in enumerate(shown, start=1):
+            tag = "  [dim](current)[/]" if m == current else ""
+            ui.console.print(f"    [cyan]{i:>2}[/]  {m}{tag}")
+        if len(filtered) > len(shown):
+            ui.console.print(f"    [dim]...and {len(filtered) - len(shown)} more - keep typing to narrow it down[/]")
+        raw = ui.console.input(
+            "\n  [bold cyan]select model[/] [dim](number, or type to filter)[/] > "
+        ).strip()
+        if not raw:
+            return current
+        if raw.isdigit() and 1 <= int(raw) <= len(shown):
+            return shown[int(raw) - 1]
+        matches = [m for m in filtered if raw.lower() in m.lower()]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            filtered = matches
+            continue
+        ui.stage_warn("model", f"no model matches '{raw}' - try a shorter filter")
+
+
+@app.command()
+def model():
+    """Interactive picker: choose a provider, then pick the exact model it
+    offers right now - fetched live from the provider, never typed blind."""
+    existing = load_config()
+    ui.console.print(f"  [dim]current[/] [cyan]{existing.model}[/] [dim]@[/] [cyan]{existing.provider}[/]\n")
+
+    ui.console.print("  [bold]providers[/]")
+    for i, name in enumerate(PROVIDER_ORDER, start=1):
+        tag = "  [dim](current)[/]" if name == existing.provider else ""
+        ui.console.print(f"    [cyan]{i}[/]  {name}{tag}")
+    raw = ui.console.input(
+        f"\n  [bold cyan]select provider[/] [dim](1-{len(PROVIDER_ORDER)}, enter to keep '{existing.provider}')[/] > "
+    ).strip()
+    if not raw:
+        provider = existing.provider
+    else:
+        if not raw.isdigit() or not (1 <= int(raw) <= len(PROVIDER_ORDER)):
+            _fail("model", f"enter a number 1-{len(PROVIDER_ORDER)}")
+        provider = PROVIDER_ORDER[int(raw) - 1]
+
+    api_key = existing.api_key
+    base_url = existing.base_url
+
+    if provider == "custom" and not base_url:
+        base_url = ui.console.input("  [bold cyan]base url[/] [dim](OpenAI-compatible endpoint)[/] > ").strip()
+        if not base_url:
+            _fail("model", "provider 'custom' needs a base url")
+
+    if provider != "ollama":
+        import os as _os
+        from rich.prompt import Prompt
+
+        has_key = bool(_os.environ.get(llm.API_KEY_ENV, "").strip() or api_key)
+        label = "API key" if not has_key else "API key [dim](enter to keep the current one)[/]"
+        entered = Prompt.ask(f"  [bold cyan]{label}[/]", password=True, default="", show_default=False)
+        if entered:
+            api_key = entered
+        elif not has_key:
+            _fail("model", f"provider '{provider}' needs an API key - set {llm.API_KEY_ENV} or paste one here")
+
+    candidate = Config(
+        model=existing.model, ollama_url=existing.ollama_url,
+        provider=provider, api_key=api_key, base_url=base_url,
+    )
+    with ui.working(f"fetching models from {provider}..."):
+        models, error = _list_models(candidate)
+
+    if not models:
+        ui.stage_warn("model", f"couldn't list models from {provider}{f' ({error})' if error else ''}")
+        model_id = ui.console.input("  [bold cyan]model id[/] [dim](type it exactly)[/] > ").strip()
+        if not model_id:
+            _fail("model", "no model id given")
+    else:
+        ui.stage_ok("model", f"{len(models)} model(s) available from {provider}")
+        model_id = _pick_from_list(models, existing.model if provider == existing.provider else "")
+
+    config = Config(model=model_id, ollama_url=existing.ollama_url, provider=provider, api_key=api_key, base_url=base_url)
+    path = save_config(config)
+    audit.append(
+        "config_change",
+        {"before": _masked_config(asdict(existing)), "after": _masked_config(asdict(config))},
+    )
+    ui.stage_ok("config", f"{path}  [dim]model:[/] {config.model}  [dim]provider:[/] {config.provider}")
+    if config.provider != "ollama":
+        ui.stage_warn("privacy", "cloud provider selected: diffs and intents will leave this machine")
+
+    _verify_llm_ready(config)
 
 
 @app.command()

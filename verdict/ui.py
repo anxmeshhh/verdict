@@ -86,6 +86,7 @@ def shell_help() -> None:
     table.add_row("report [run-id]", "export a run as a shareable HTML page ('last' = newest)")
     table.add_row("logs [run-id]", "full evidence for a past run ('last' = newest)")
     table.add_row("health", "liveness check: config, LLM provider, Docker")
+    table.add_row("model", "pick a provider + model interactively (or set with config)")
     table.add_row("config get/set", "settings: model, provider (ollama/openrouter/groq/gemini/...), api_key")
     table.add_row("install-hook", "pre-push gate: verify every push before it leaves this machine")
     table.add_row("init [options]", "first-time setup for this repo")

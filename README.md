@@ -91,6 +91,10 @@ verdict init --provider groq --model llama-3.3-70b-versatile --api-key <key>
 # or: openrouter | gemini | openai | custom (custom also needs --base-url)
 ```
 
+Don't know the exact model id? `verdict model` (or `/model` in the interactive shell) walks
+you through it: pick a provider, paste the API key, and it fetches the real list of models
+that key can use right now and lets you pick from it - never a hardcoded or guessed name.
+
 All providers go through one OpenAI-compatible transport, and you can change any of it later without re-running init:
 
 ```
