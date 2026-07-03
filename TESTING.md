@@ -45,6 +45,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | User-Agent on outgoing cloud requests | `verdict/llm.py` | correctness fix |
 | JSON-mode-rejection fallback | `verdict/llm.py`, `verdict/generator.py` | correctness fix |
 | Rate-limit (429) Retry-After handling | `verdict/llm.py` | correctness fix |
+| Reasoning-model `<think>` trace stripping | `verdict/generator.py`, `verdict/testgen.py` | correctness fix |
 
 ## 1. Config & Setup
 
@@ -70,6 +71,8 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P1]** A huge/malicious `Retry-After` value is capped (`RATE_LIMIT_MAX_WAIT` = 30s) so a single command can't hang indefinitely
 - [ ] **[P1]** No `Retry-After` header present → falls back to the original fixed backoff schedule, unchanged
 - [ ] **[P1]** Exhausting all attempts on repeated 429s raises a message that specifically names rate-limiting as the cause, not a generic "unreachable"
+- [ ] **[P0]** **Regression: reasoning ("thinking") models must not surface as "model returned unusable JSON."** Groq's reasoning models (seen live: a Qwen build) prepend a `<think>...</think>` trace to the content by default outside enforced JSON mode - `json.loads` fails at char 0 on the leading `<`, indistinguishable at a glance from a genuinely empty response. `generator._extract_json` strips the think block, then trims to the outermost `{...}` unconditionally (safe no-op on already-clean JSON) to also drop any leading/trailing commentary. `testgen._strip_fences` gets the same think-block strip before its code-fence match
+- [ ] **[P1]** A truly empty LLM response still raises the original clear JSON-decode error - the fallback recovers noise around real JSON, it does not manufacture scenarios or code from nothing
 - [ ] **[P1]** `config get` (no key) → lists all keys, `api_key` masked as `****xxxx`
 - [ ] **[P1]** `config set` for each key: `model`, `ollama_url`, `provider`, `api_key`, `base_url`
 - [ ] **[P1]** `config set provider <invalid>` → rejected, config unchanged

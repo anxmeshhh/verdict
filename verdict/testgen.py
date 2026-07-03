@@ -71,7 +71,10 @@ class GeneratedTest:
 
 
 def _strip_fences(text: str) -> str:
-    text = text.strip()
+    # "Thinking"/reasoning models can prepend a <think>...</think> trace to
+    # the content before the actual code - drop it first, same fix as
+    # generator.py's _extract_json.
+    text = re.sub(r"^<think>.*?</think>\s*", "", text.strip(), flags=re.DOTALL)
     match = re.match(r"^```(?:python)?\s*\n(.*?)\n?```\s*$", text, re.DOTALL)
     return match.group(1) if match else text
 

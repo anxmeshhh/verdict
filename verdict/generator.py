@@ -82,8 +82,26 @@ def _strip_fences(text: str) -> str:
     return match.group(1) if match else text
 
 
+def _extract_json(text: str) -> str:
+    """"Thinking"/reasoning models (seen live: a Qwen build on Groq) prepend a
+    <think>...</think> trace to the content by default outside enforced JSON
+    mode - `json.loads` then fails at char 0 on the '<', which looks
+    identical to an empty response. Strip it, then fall back to slicing out
+    the first {...} block if anything is still wrapped around the JSON."""
+    text = re.sub(r"^<think>.*?</think>\s*", "", text.strip(), flags=re.DOTALL)
+    text = _strip_fences(text.strip())
+    # unconditional, not just when there's obvious leading junk: the schema is
+    # always a JSON object, so trimming to the outermost {...} is a no-op on
+    # already-clean text and safely drops any leading/trailing commentary
+    # otherwise (e.g. "Hope that helps!" after the JSON).
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        text = text[start : end + 1]
+    return text
+
+
 def _parse_scenarios(raw: str) -> list[Scenario]:
-    parsed = json.loads(_strip_fences(raw))
+    parsed = json.loads(_extract_json(raw))
     items = parsed.get("scenarios")
     if not isinstance(items, list) or not items:
         raise ValueError("response JSON has no non-empty 'scenarios' list")
