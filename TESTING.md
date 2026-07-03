@@ -34,6 +34,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Git pre-push hook | `verdict/hooks.py` | post-Phase-1 |
 | Audit log | `verdict/audit.py` | post-Phase-1 |
 | Dead-function detection | `verdict/testgen.py` | correctness fix |
+| Range vagueness fix | `verdict/intent.py` | correctness fix |
 | FAILED-result confirmation | `verdict/cli.py` | correctness fix |
 
 ## 1. Config & Setup
@@ -49,7 +50,8 @@ real intent-vs-behavior mismatch, not a syntax error.
 ## 2. Intent Extractor
 
 - [ ] **[P1]** `extract_from_commit` — diff + message of a single ref
-- [ ] **[P1]** `extract_from_range` (`--base`) — diff across a range, intent from combined commit subjects
+- [ ] **[P1]** `extract_from_range` (`--base`) — diff across a range, intent from combined commit subjects (all subjects present, not just HEAD's)
+- [ ] **[P0]** **Regression: one vague commit must not poison a range with real history underneath.** If HEAD's message is a throwaway (`"wip"`) but an earlier commit in the same range is genuinely descriptive, the range must NOT be flagged vague — only flag a range vague if every commit subject in it is independently vague
 - [ ] **[P1]** `extract_from_working_tree` (`--intent`) — uncommitted diff + explicit intent
 - [ ] **[P0]** Vagueness detection catches: too-short message, placeholder patterns (`"wip"`, `"fix"`, `"final"`), low content-word count
 - [ ] **[P0]** Vagueness detection does NOT false-positive on a real, descriptive intent
@@ -147,6 +149,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P0]** **Dead-function detection**: a generated test that defines a check function but never calls it is caught by `find_dead_functions`, fed back to the model for a retry, and — if never fixed — the scenario becomes `ungeneratable` rather than a false `PASSED`
 - [ ] **[P0]** **FAILED confirmation pass**: a scenario whose failure reproduces on independent regeneration stays `FAILED`; one that doesn't reproduce is downgraded to `uncertain` and recorded under `failure_not_reproduced` — never left as a confident but wrong `FAILED`
 - [ ] **[P2]** Confirmation pass only fires for `FAILED` results — passed/uncertain/error scenarios don't pay the extra generation+sandbox cost
+- [ ] **[P0]** **Range vagueness fix**: a `--base` range whose HEAD commit is vague (`"wip"`) but contains a genuinely descriptive earlier commit is NOT flagged vague; a range where every commit is genuinely vague still is
 
 ## 14. Resilience / stress / isolation
 
