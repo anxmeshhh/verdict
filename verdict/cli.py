@@ -260,7 +260,11 @@ def _pick_from_list(models: list[str], current: str) -> str:
 @app.command()
 def model():
     """Interactive picker: choose a provider, then pick the exact model it
-    offers right now - fetched live from the provider, never typed blind."""
+    offers right now - fetched live from the provider, never typed blind.
+
+    The API key prompt is plain text (not masked) on purpose - hidden/getpass
+    input silently drops or mangles pasted text on many terminals.
+    """
     existing = load_config()
     ui.console.print(f"  [dim]current[/] [cyan]{existing.model}[/] [dim]@[/] [cyan]{existing.provider}[/]\n")
 
