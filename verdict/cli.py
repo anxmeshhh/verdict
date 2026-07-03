@@ -447,7 +447,10 @@ def run(
     path: list[str] = typer.Option(None, "--path", help="Only verify these files/folders (repeatable)"),
     scenarios_file: Path = typer.Option(None, "--scenarios", help="Run developer-authored scenarios (Module 3b)"),
     hybrid: bool = typer.Option(False, "--hybrid", help="Combine generated + manual scenarios, deduped (needs --scenarios)"),
-    max_scenarios: int = typer.Option(4, help="Cap on scenarios executed per run"),
+    max_scenarios: int = typer.Option(
+        8, help="Cap on scenarios executed per run (autonomous mode asks for 2-5; "
+        "--hybrid adds manual ones on top, so the default has headroom for both combined)"
+    ),
     timeout: int = typer.Option(300, help="Per-scenario sandbox timeout (seconds)"),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
     force_regenerate: bool = typer.Option(
