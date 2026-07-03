@@ -102,6 +102,11 @@ def run_test(
             "--cpus", CPU_LIMIT,
             "-v", f"{repo.resolve()}:/src:ro",
             "-v", f"{tmp}:/verdict:ro",
+            # Running python against an absolute script path (below) sets
+            # sys.path[0] to the SCRIPT's directory (/verdict), not the repo
+            # copy at /app, even after `cd /app` - so repo modules would
+            # never be importable without this.
+            "-e", "PYTHONPATH=/app",
             image,
             "sh", "-c", script,
         ]
