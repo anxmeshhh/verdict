@@ -21,50 +21,58 @@ for _stream in (sys.stdout, sys.stderr):
 from dataclasses import asdict
 
 from verdict import audit, hooks, llm, ui
-from verdict.authoring import AuthoringError, load_scenarios, write_template
+from verdict.authoring import AuthoringError, write_template
 from verdict.config import Config, ensure_gitignore, is_initialized, load_config, save_config
 from verdict.generator import GenerationError, generate
-from verdict.hybrid import merge
-from verdict.intent import (
-    GitError,
-    IntentResult,
-    check_vagueness,
-    extract_from_commit,
-    extract_from_range,
-    extract_from_working_tree,
+from verdict.intent import GitError, check_vagueness
+from verdict.pipeline import (
+    PipelineParams,
+    display_intent_line,
+    execute_pipeline,
+    extract_intent,
 )
-
-
-def _display_intent_line(intent: str) -> str:
-    """A range's intent can be several commit subjects joined together; the
-    one that actually cleared the vagueness bar (and is doing the real work
-    of describing the change) isn't necessarily the newest commit. Show that
-    one instead of blindly always showing line 0 - a human skimming
-    intent: "tmp" when the run was accepted has every reason to wonder what
-    actually justified it."""
-    lines = [ln for ln in intent.splitlines() if ln.strip()]
-    if not lines:
-        return ""
-    for line in lines:
-        if check_vagueness(line) is None:
-            extra = f"  [dim](+{len(lines) - 1} more commit(s) in range)[/]" if len(lines) > 1 else ""
-            return line[:70] + extra
-    return lines[0][:70]
 from verdict.reporter import (
-    build_incomplete_record,
-    build_record,
     format_json,
     latest_run_id,
     list_runs,
     load_run,
-    new_run_id,
     save_html,
-    save_run,
 )
-from verdict.sandbox import SandboxError, check_docker, run_all, run_test
-from verdict.scorer import score
-from verdict.testgen import generate_test_code
+from verdict.sandbox import check_docker
 from verdict.validator import validate
+
+
+class _CliEvents:
+    """Pipeline events rendered exactly as the Phase 1 CLI always has -
+    byte-for-byte, verified against a pre-refactor snapshot."""
+
+    def stage_ok(self, name: str, detail: str = "") -> None:
+        ui.stage_ok(name, detail)
+
+    def stage_warn(self, name: str, detail: str) -> None:
+        ui.stage_warn(name, detail)
+
+    def stage_fail(self, name: str, detail: str) -> None:
+        ui.stage_fail(name, detail)
+
+    def stage_note(self, name: str, detail: str) -> None:
+        ui.stage_note(name, detail)
+
+    def scenario_line(self, name: str) -> None:
+        ui.scenario_line(name)
+
+    def dropped_scenario(self, name: str, reason: str, cross_glyph: bool) -> None:
+        mark = ui.CROSS if cross_glyph else "x"
+        ui.console.print(f"      [red]{mark}[/] [dim strike]{name}[/] [red dim]{reason[:70]}[/]")
+
+    def result_line(self, scenario_name: str, status: str, duration_s: float) -> None:
+        ui.result_line(scenario_name, status, duration_s)
+
+    def recorded_incomplete(self, status: str, run_id: str) -> None:
+        ui.console.print(f"  [dim]recorded as {status}: run {run_id}[/]")
+
+    def working(self, message: str):
+        return ui.working(message)
 
 app = typer.Typer(add_completion=False, help="Verdict - proves code does what it claims, before a human reviews it.")
 
@@ -124,16 +132,6 @@ def _fail(stage: str, message: str) -> None:
     raise typer.Exit(code=1)
 
 
-def _extract(repo: Path, ref: str | None, base: str | None, intent: str | None, paths: list[str] | None = None) -> IntentResult:
-    if base:
-        return extract_from_range(repo, base, ref or "HEAD", intent=intent, paths=paths)
-    if ref:
-        return extract_from_commit(repo, ref, paths=paths)
-    if intent is not None:
-        return extract_from_working_tree(repo, intent, paths=paths)
-    return extract_from_commit(repo, "HEAD", paths=paths)
-
-
 def _masked_config(data: dict) -> dict:
     """API keys never land in the audit log or on screen - only enough to identify them."""
     masked = dict(data)
@@ -183,6 +181,7 @@ def init(
         provider=resolved_provider,
         api_key=api_key or existing.api_key,
         base_url=base_url or existing.base_url,
+        database_url=existing.database_url,
     )
     path = save_config(config)
     audit.append(
@@ -329,7 +328,10 @@ def model():
         ui.stage_ok("model", f"{len(models)} model(s) available from {provider}")
         model_id = _pick_from_list(models, existing.model if provider == existing.provider else "")
 
-    config = Config(model=model_id, ollama_url=existing.ollama_url, provider=provider, api_key=api_key, base_url=base_url)
+    config = Config(
+        model=model_id, ollama_url=existing.ollama_url, provider=provider,
+        api_key=api_key, base_url=base_url, database_url=existing.database_url,
+    )
     path = save_config(config)
     audit.append(
         "config_change",
@@ -403,7 +405,7 @@ def plan(
     config = load_config()
 
     try:
-        intent_result = _extract(repo, ref, base, intent, paths=path)
+        intent_result = extract_intent(repo, ref, base, intent, paths=path)
     except GitError as e:
         _fail("intent", str(e))
 
@@ -417,7 +419,7 @@ def plan(
         ui.console.print(f"      [dim]edit it, then:[/] [cyan]verdict run --scenarios {path}[/]")
         return
 
-    ui.stage_ok("intent", f'"{_display_intent_line(intent_result.intent)}"')
+    ui.stage_ok("intent", f'"{display_intent_line(intent_result.intent)}"')
     if intent_result.vague:
         _fail("scenario-gen", f"intent too vague: {intent_result.vague_reason}")
 
@@ -457,7 +459,10 @@ def run(
         False, "--force-regenerate", help="Bypass the scenario-gen cache and ask the model fresh"
     ),
 ):
-    """The full pipeline: intent -> scenarios -> validate -> sandbox -> score -> report."""
+    """The full pipeline: intent -> scenarios -> validate -> sandbox -> score -> report.
+
+    Orchestration lives in verdict/pipeline.py (shared with the Phase 3
+    worker); this command is the Rich-rendering frontend for it."""
     if as_json:
         # stdout must contain ONLY the final json blob - every progress/status
         # line from here on goes to stderr instead, before anything can print
@@ -467,245 +472,27 @@ def run(
     if hybrid and scenarios_file is None:
         ui.stage_fail("config", "--hybrid needs --scenarios <file> to know which manual scenarios to merge")
         raise typer.Exit(code=1)
-    mode = "hybrid" if hybrid else ("manual" if scenarios_file else "autonomous")
-    run_id = new_run_id()
-    intent_result: IntentResult | None = None
-    tokens = {"llm_calls": 0, "prompt_tokens": 0, "output_tokens": 0, "llm_seconds": 0.0}
-
-    def _track(prompt_tokens: int, output_tokens: int, seconds: float) -> None:
-        tokens["llm_calls"] += 1
-        tokens["prompt_tokens"] += prompt_tokens
-        tokens["output_tokens"] += output_tokens
-        tokens["llm_seconds"] = round(tokens["llm_seconds"] + seconds, 2)
-
-    def _abort(stage: str, message: str, status: str = "errored") -> None:
-        """A run that dies still leaves a record and an audit entry."""
-        record = build_incomplete_record(
-            run_id, status, stage, message, llm.model_id(config), intent_result, tokens
-        )
-        save_run(record, repo)
-        audit.append(f"run_{status}", {"stage": stage, "reason": message}, run_id=run_id, root=repo)
-        ui.stage_fail(stage, message)
-        ui.console.print(f"  [dim]recorded as {status}: run {run_id}[/]")
-        raise typer.Exit(code=1)
-
-    def _finish_unverified(stage: str, note: str, generation) -> None:
-        """The pipeline completed but produced zero conclusive evidence.
-        That is a verdict (UNVERIFIED), not an infrastructure error."""
-        risk = score([])
-        risk.reasons.insert(0, f"{stage}: {note}")
-        ui.stage_ok("score", risk.level)
-        record = build_record(run_id, intent_result, generation, [], risk, llm.model_id(config), tokens)
-        record["note"] = note
-        save_run(record, repo)
-        audit.append(
-            "run_completed",
-            {"risk": risk.level, "passed": 0, "failed": 0, "inconclusive": 0, "note": note, "tokens": tokens},
-            run_id=run_id,
-            root=repo,
-        )
-        if as_json:
-            typer.echo(format_json(record))
-        else:
-            ui.verdict_panel(record)
-        raise typer.Exit(code=1)
-
-    audit.append(
-        "run_started",
-        {"mode": mode, "ref": ref, "base": base, "explicit_intent": bool(intent), "paths": list(path or [])},
-        run_id=run_id,
-        root=repo,
+    params = PipelineParams(
+        ref=ref, base=base, intent=intent, paths=path,
+        scenarios_file=scenarios_file, hybrid=hybrid,
+        max_scenarios=max_scenarios, timeout=timeout,
+        force_regenerate=force_regenerate,
     )
 
     if not as_json:
-        ui.banner(mode, config.model, config.provider)
+        ui.banner(params.mode, config.model, config.provider)
 
-    # [1/6] config
-    with ui.working("checking dependencies..."):
-        status = llm.check(config)
-        docker_ok = check_docker()
-    needs_llm = scenarios_file is None
-    if needs_llm and not status.reachable:
-        _abort("config", f"{config.provider} not reachable: {status.error or 'no response'}")
-    if needs_llm and llm.is_local(config) and status.model_known is False:
-        _abort("config", f"model '{config.model}' not pulled")
-    if not docker_ok:
-        _abort("config", "Docker daemon not reachable")
-    ui.stage_ok("config", f"{config.provider} and Docker ready")
+    outcome = execute_pipeline(params, config, repo, events=_CliEvents())
 
-    # [2/6] intent
-    try:
-        intent_result = _extract(repo, ref, base, intent, paths=path)
-    except GitError as e:
-        _abort("intent", str(e))
-    if not intent_result.diff.strip():
-        scope = f" under {', '.join(path)}" if path else ""
-        _abort("intent", f"diff is empty{scope} - nothing to verify", status="skipped")
-    ui.stage_ok("intent", f'"{_display_intent_line(intent_result.intent)}"')
-    if path:
-        ui.stage_note("scope", f"only verifying: {', '.join(path)}")
-
-    # [3/6] scenarios (generate, load, or hybrid-merge)
-    if scenarios_file and hybrid:
-        try:
-            manual_gen = load_scenarios(scenarios_file)
-        except AuthoringError as e:
-            _abort("scenario-load", str(e))
-        ui.stage_ok("scenario-load", f"{len(manual_gen.scenarios)} manual scenario(s) from {scenarios_file.name}")
-        if intent_result.vague:
-            ui.stage_warn("scenario-gen", f"intent too vague to generate ({intent_result.vague_reason}) - manual only")
-            generation = manual_gen
-        else:
-            try:
-                with ui.working(f"asking {config.model} for scenarios..."):
-                    llm_gen = generate(intent_result, config, repo=repo, force=force_regenerate)
-            except GenerationError as e:
-                _abort("scenario-gen", str(e))
-            _track(llm_gen.prompt_tokens, llm_gen.output_tokens, llm_gen.llm_duration_s)
-            merged = merge(llm_gen.scenarios, manual_gen.scenarios)
-            generation = llm_gen
-            generation.scenarios = merged.scenarios
-            generation.source = "hybrid"
-            detail = f"{len(merged.scenarios)} total after merge"
-            if merged.dropped_duplicates:
-                detail += f" ({len(merged.dropped_duplicates)} generated duplicate(s) shadowed by manual)"
-            ui.stage_ok("scenario-gen", detail)
-    elif scenarios_file:
-        try:
-            generation = load_scenarios(scenarios_file)
-        except AuthoringError as e:
-            _abort("scenario-load", str(e))
-        ui.stage_ok("scenario-load", f"{len(generation.scenarios)} scenario(s) from {scenarios_file.name}")
-    else:
-        if intent_result.vague:
-            _abort(
-                "scenario-gen",
-                f"intent too vague: {intent_result.vague_reason}. "
-                "Pass --intent, or author scenarios with: verdict plan --manual",
-                status="skipped",
-            )
-        try:
-            with ui.working(f"asking {config.model} for scenarios..."):
-                generation = generate(intent_result, config, repo=repo, force=force_regenerate)
-        except GenerationError as e:
-            _abort("scenario-gen", str(e))
-        _track(generation.prompt_tokens, generation.output_tokens, generation.llm_duration_s)
-        cache_note = "  [dim](cached)[/]" if generation.from_cache else ""
-        ui.stage_ok("scenario-gen", f"{len(generation.scenarios)} scenario(s) generated{cache_note}")
-    for s in generation.scenarios:
-        ui.scenario_line(s.name)
-
-    # [4/6] validate
-    validations = validate(generation.scenarios, intent_result.diff, intent_result.intent)
-    kept = [v.scenario for v in validations if v.traceable]
-    dropped = [v for v in validations if not v.traceable]
-    if not kept:
-        ui.stage_warn("validate", "0 scenarios traceable to this diff")
-        for v in dropped:
-            ui.console.print(f"      [red]{ui.CROSS}[/] [dim strike]{v.scenario.name}[/] [red dim]{v.reason[:70]}[/]")
-        _finish_unverified("validate", "no generated scenario was traceable to this diff", generation)
-    ui.stage_ok("validate", f"{len(kept)}/{len(validations)} traceable to the diff")
-    for v in dropped:
-        ui.console.print(f"      [red]x[/] [dim strike]{v.scenario.name}[/] [red dim]{v.reason[:70]}[/]")
-    cap_dropped = kept[max_scenarios:]
-    kept = kept[:max_scenarios]
-    if cap_dropped:
-        # A capped scenario never becomes a SandboxResult at all - invisible
-        # to score(), format_json, and the run record alike unless something
-        # says so explicitly. A silent drop here is worse than a FAILED: the
-        # report would look identical to a run that verified everything.
-        ui.stage_warn(
-            "validate",
-            f"running {len(kept)} of {len(kept) + len(cap_dropped)} traceable scenario(s) - "
-            f"--max-scenarios={max_scenarios} cap reached, NOT run: {', '.join(s.name for s in cap_dropped)}",
-        )
-
-    # [5/6] sandbox (testgen + execution)
-    tests, ungeneratable = [], []
-    for s in kept:
-        try:
-            with ui.working(f"writing check for {s.name}..."):
-                t = generate_test_code(s, intent_result, config)
-            _track(t.prompt_tokens, t.output_tokens, t.llm_duration_s)
-            tests.append(t)
-            ui.stage_note("testgen", f"{s.name} [dim](attempt {t.attempts})[/]")
-        except GenerationError:
-            ungeneratable.append(s)
-            _track(0, 0, 0)
-            ui.stage_warn("testgen", f"{s.name}: could not produce a sound check - skipped")
-
-    if not tests:
-        _finish_unverified("testgen", "no scenario produced runnable test code", generation)
-
-    try:
-        with ui.working("running scenarios in sandbox containers..."):
-            results = run_all(
-                tests, repo, timeout=timeout,
-                on_result=lambda r: ui.result_line(r.scenario_name, r.status, r.duration_s),
-            )
-    except SandboxError as e:
-        _abort("sandbox", str(e))
-
-    # [5.5/6] confirm FAILED results independently. A FAILED scenario is the
-    # most consequential outcome - it raises risk and can block a push - so a
-    # bug in the generated TEST (not the code under test) must never
-    # masquerade as a real failure. Only failing scenarios pay this extra
-    # generation+sandbox cost; passed/uncertain/error results are untouched.
-    downgraded: list[str] = []
-    for result in results:
-        if result.status != "failed":
-            continue
-        matching_test = next((t for t in tests if t.scenario.name == result.scenario_name), None)
-        if matching_test is None:
-            continue
-        try:
-            with ui.working(f"confirming failure for {result.scenario_name}..."):
-                confirm_test = generate_test_code(matching_test.scenario, intent_result, config)
-            _track(confirm_test.prompt_tokens, confirm_test.output_tokens, confirm_test.llm_duration_s)
-            confirm_result = run_test(confirm_test, repo, timeout=timeout)
-        except GenerationError:
-            continue  # could not regenerate - keep the original result as-is
-        if confirm_result.status == "failed":
-            ui.stage_note("confirm", f"{result.scenario_name}: failure reproduced independently")
-        else:
-            result.status = "uncertain"
-            downgraded.append(result.scenario_name)
-            ui.stage_warn(
-                "confirm",
-                f"{result.scenario_name}: independent regeneration did not reproduce the failure "
-                "- downgraded to uncertain (likely a bug in the generated test, not the code)",
-            )
-
-    # [6/6] score + report
-    risk = score(results)
-    ui.stage_ok("score", risk.level)
-
-    record = build_record(run_id, intent_result, generation, results, risk, llm.model_id(config), tokens)
-    if ungeneratable:
-        record["ungeneratable"] = [s.name for s in ungeneratable]
-    if downgraded:
-        record["failure_not_reproduced"] = downgraded
-    if cap_dropped:
-        record["scenario_cap_dropped"] = [s.name for s in cap_dropped]
-    save_run(record, repo)
-    audit.append(
-        "run_completed",
-        {
-            "risk": risk.level,
-            "passed": risk.passed,
-            "failed": risk.failed,
-            "inconclusive": risk.inconclusive,
-            "tokens": tokens,
-        },
-        run_id=run_id,
-        root=repo,
-    )
-
+    if outcome.status in ("errored", "skipped"):
+        raise typer.Exit(code=1)
     if as_json:
-        typer.echo(format_json(record))
+        typer.echo(format_json(outcome.record))
     else:
-        ui.verdict_panel(record)
-    raise typer.Exit(code=0 if risk.level == "LOW" else 1)
+        ui.verdict_panel(outcome.record)
+    if outcome.status == "unverified":
+        raise typer.Exit(code=1)
+    raise typer.Exit(code=0 if outcome.risk_level == "LOW" else 1)
 
 
 INTENT_TEMPLATE = """\
