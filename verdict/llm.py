@@ -101,34 +101,50 @@ def call(
     return _call_openai_compatible(prompt, config, json_format, temperature)
 
 
+def _is_json_mode_rejection(status_code: int, detail: str) -> bool:
+    """Some models (seen on Groq, e.g. certain Qwen builds) can't reliably
+    produce output under a provider's enforced JSON mode and get a 400 back
+    with an empty completion - not a bad key, not a bad request shape, just
+    that model+response_format combination not working. Narrow match on
+    purpose: this must never swallow an unrelated 400 (bad model id, bad
+    diff, etc)."""
+    return status_code == 400 and (
+        "json_validate_failed" in detail or "failed_generation" in detail
+    )
+
+
 def _call_openai_compatible(
     prompt: str, config: Config, json_format: bool, temperature: float
 ) -> LLMResponse:
     base_url = resolve_base_url(config)
     api_key = resolve_api_key(config)
-    payload: dict = {
-        "model": config.model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": temperature,
-        "stream": False,
-    }
-    if json_format:
-        payload["response_format"] = {"type": "json_object"}
-    data = json.dumps(payload).encode("utf-8")
+    use_json_mode = json_format
+
+    def build_request() -> urllib.request.Request:
+        payload: dict = {
+            "model": config.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "stream": False,
+        }
+        if use_json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        return urllib.request.Request(
+            f"{base_url}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "User-Agent": USER_AGENT,
+            },
+        )
 
     start = time.monotonic()
     last_error: Exception | None = None
-    for attempt in range(1, MAX_TRANSPORT_ATTEMPTS + 1):
+    attempt = 1
+    while attempt <= MAX_TRANSPORT_ATTEMPTS:
         try:
-            req = urllib.request.Request(
-                f"{base_url}/chat/completions",
-                data=data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                    "User-Agent": USER_AGENT,
-                },
-            )
+            req = build_request()
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
             choices = body.get("choices") or []
@@ -142,14 +158,21 @@ def _call_openai_compatible(
                 transport_attempts=attempt,
             )
         except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", errors="replace")[:300]
+            except OSError:
+                pass
+            if use_json_mode and _is_json_mode_rejection(e.code, detail):
+                # Not transient, not a retry-with-backoff situation - the
+                # model just can't do enforced JSON mode. Fall back to a
+                # plain completion (the prompt already demands JSON-only
+                # text) and try the exact same attempt again immediately.
+                use_json_mode = False
+                continue
             # 401/403 = bad key, 404 = bad model/base_url, 4xx generally our config - don't retry.
             # 429 (rate limit) and 5xx are transient - retry with backoff.
             if e.code < 500 and e.code != 429:
-                detail = ""
-                try:
-                    detail = e.read().decode("utf-8", errors="replace")[:300]
-                except OSError:
-                    pass
                 raise LLMDown(
                     f"{config.provider} rejected the request (HTTP {e.code}): {detail or e.reason}"
                 ) from e
@@ -159,6 +182,7 @@ def _call_openai_compatible(
 
         if attempt < MAX_TRANSPORT_ATTEMPTS:
             time.sleep(BACKOFF_SECONDS[attempt - 1])
+        attempt += 1
 
     raise LLMDown(
         f"{config.provider} unreachable after {MAX_TRANSPORT_ATTEMPTS} attempts: {last_error}"

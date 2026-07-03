@@ -9,6 +9,7 @@ Output: GenerationResult - scenarios plus the full audit trail
 This is the ONE bounded LLM step in the entire pipeline.
 """
 import json
+import re
 from dataclasses import dataclass
 
 from verdict import llm
@@ -72,8 +73,17 @@ def build_prompt(intent_result: IntentResult) -> str:
     return PROMPT_TEMPLATE.format(intent=intent_result.intent, diff=diff)
 
 
+def _strip_fences(text: str) -> str:
+    """Enforced JSON mode guarantees fence-free output, but a plain-text
+    fallback (e.g. when a model can't do enforced JSON mode at all) has no
+    such guarantee - the model may still wrap its JSON in ```...``` anyway."""
+    text = text.strip()
+    match = re.match(r"^```(?:json)?\s*\n(.*?)\n?```\s*$", text, re.DOTALL)
+    return match.group(1) if match else text
+
+
 def _parse_scenarios(raw: str) -> list[Scenario]:
-    parsed = json.loads(raw)
+    parsed = json.loads(_strip_fences(raw))
     items = parsed.get("scenarios")
     if not isinstance(items, list) or not items:
         raise ValueError("response JSON has no non-empty 'scenarios' list")

@@ -43,6 +43,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | One-shot provider setup (`init --provider/--api-key/--base-url`) | `verdict/cli.py` | correctness fix |
 | Interactive `model` picker (live-fetched list, `/model` in shell) | `verdict/cli.py` | post-Phase-1 |
 | User-Agent on outgoing cloud requests | `verdict/llm.py` | correctness fix |
+| JSON-mode-rejection fallback | `verdict/llm.py`, `verdict/generator.py` | correctness fix |
 
 ## 1. Config & Setup
 
@@ -61,6 +62,9 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P1]** Pasted key with stray surrounding quotes/whitespace (common when copying from a quoted source) is stripped before being saved
 - [ ] **[P0]** **Regression: Groq requests must send a real User-Agent.** Groq's API sits behind Cloudflare, which blocks Python's default `Python-urllib/x.y` User-Agent as a bot (Cloudflare error 1010) - a VALID key still got a bare `HTTP 403: Forbidden` with zero auth-related detail, indistinguishable from an actual permission problem. Reproduced directly (curl with the default urllib UA → 403; same request with any normal UA → reaches Groq's real auth layer). Fixed by sending a `User-Agent: verdict-cli/0.1.0` header on every outgoing request in `llm.py` (both chat completions and the /models health check)
 - [ ] **[P1]** Cloud-provider HTTP errors surface the response body (e.g. `{"error": ...}` or a WAF block page), not just the bare status code - needed to tell "bad key" apart from "blocked before it even reached the provider"
+- [ ] **[P0]** **Regression: model that can't do enforced JSON mode must not hard-fail scenario-gen.** Some models (seen live: a Qwen build on Groq) return `HTTP 400 json_validate_failed` with an empty `failed_generation` when `response_format: json_object` is set - not a bad key or bad request, the model just can't produce valid output under forced JSON mode. `llm.call(..., json_format=True)` must detect this specific error and retry the SAME request once with JSON mode turned off before giving up, since the prompt already demands JSON-only text on its own
+- [ ] **[P0]** An unrelated 400 (bad model id, bad request shape) must NOT be caught by the JSON-mode fallback - it must still raise immediately as before, no wasted retry
+- [ ] **[P1]** Scenario-gen JSON parsing tolerates a markdown-fenced response (` ```json ... ``` `), not just bare JSON - needed once JSON mode isn't enforced and a model reverts to its default formatting habits
 - [ ] **[P1]** `config get` (no key) → lists all keys, `api_key` masked as `****xxxx`
 - [ ] **[P1]** `config set` for each key: `model`, `ollama_url`, `provider`, `api_key`, `base_url`
 - [ ] **[P1]** `config set provider <invalid>` → rejected, config unchanged
