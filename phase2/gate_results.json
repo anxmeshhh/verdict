@@ -1,0 +1,64 @@
+{
+  "gate": "Phase 2 - answer 'why did it flag this' from stored data alone",
+  "ran_at": "2026-07-03T16:31:15.751651+00:00",
+  "checks": [
+    {
+      "check": "schema_init_idempotent",
+      "ok": true,
+      "detail": "init_schema ran twice without error"
+    },
+    {
+      "check": "migrate_real_history",
+      "ok": true,
+      "detail": "66 real runs + 143 audit entries from Rate Limiter Test"
+    },
+    {
+      "check": "found_flagged_run",
+      "ok": true,
+      "detail": "run run_0a809e (HIGH)"
+    },
+    {
+      "check": "why_has_model_and_intent",
+      "ok": true,
+      "detail": "model=groq/openai/gpt-oss-120b"
+    },
+    {
+      "check": "why_has_reasons",
+      "ok": true,
+      "detail": "2 reason line(s)"
+    },
+    {
+      "check": "failed_scenarios_have_evidence",
+      "ok": true,
+      "detail": "1 failed scenario(s), each with stdout evidence + full test code"
+    },
+    {
+      "check": "audit_trail_prompt_and_raw_response",
+      "ok": true,
+      "detail": "prompt 983 chars stored"
+    },
+    {
+      "check": "audit_log_records_run_lifecycle",
+      "ok": true,
+      "detail": "actions: ['run_started', 'run_completed']"
+    },
+    {
+      "check": "override_roundtrip",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "override_rate_metric",
+      "ok": true,
+      "detail": "2/54 = 0.037"
+    },
+    {
+      "check": "dual_write_file_and_db",
+      "ok": true,
+      "detail": "one save_run() call produced both the file record and the DB row"
+    }
+  ],
+  "passed": 11,
+  "total": 11,
+  "gate_met": true
+}

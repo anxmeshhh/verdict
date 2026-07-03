@@ -821,7 +821,7 @@ def watch(
 config_app = typer.Typer(add_completion=False, help="Read or change verdict settings for this repo.")
 app.add_typer(config_app, name="config")
 
-_CONFIG_KEYS = ("model", "ollama_url", "provider", "api_key", "base_url")
+_CONFIG_KEYS = ("model", "ollama_url", "provider", "api_key", "base_url", "database_url")
 
 
 @config_app.command("get")
@@ -864,6 +864,7 @@ def install_hook():
         path = hooks.install(Path.cwd())
     except hooks.HookError as e:
         _fail("hook", str(e))
+    audit.append("hook_installed", {"path": str(path)})
     ui.stage_ok("hook", f"pre-push hook installed at {path}")
     ui.console.print("      [dim]every push now runs verdict on exactly the commits being pushed;[/]")
     ui.console.print("      [dim]non-LOW verdicts block the push (bypass: git push --no-verify)[/]")
@@ -876,6 +877,7 @@ def uninstall_hook():
         hooks.uninstall(Path.cwd())
     except hooks.HookError as e:
         _fail("hook", str(e))
+    audit.append("hook_removed", {})
     ui.stage_ok("hook", "pre-push hook removed")
 
 
@@ -889,10 +891,48 @@ def _resolve_run_id(run_id: str) -> str:
     return latest
 
 
+def _load_record(run_id: str) -> dict | None:
+    """Single read path for every command that inspects a run. Prefers the
+    Phase 2 database when configured (falls back to the file store), and
+    attaches any overrides so OVERRIDDEN shows up everywhere a run does."""
+    from verdict import store
+
+    config = load_config()
+    record = None
+    url = store.resolve_database_url(config)
+    if url:
+        try:
+            record = store.load_run_record(url, run_id)
+            if record is not None:
+                overrides = store.get_overrides(url, run_id)
+                if overrides:
+                    record["overrides"] = overrides
+        except store.StoreError as e:
+            ui.stage_warn("store", f"{e} - falling back to the file store")
+    if record is None:
+        record = load_run(run_id)
+    return record
+
+
+def _list_records(limit: int | None = None) -> list[dict]:
+    from verdict import store
+
+    config = load_config()
+    url = store.resolve_database_url(config)
+    if url:
+        try:
+            records = store.list_run_records(url, limit=limit)
+            if records:
+                return records
+        except store.StoreError as e:
+            ui.stage_warn("store", f"{e} - falling back to the file store")
+    return list_runs(limit=limit)
+
+
 @app.command()
 def runs(limit: int = typer.Option(15, help="How many recent runs to show")):
     """Browse past verdicts as a table - the history without touching JSON."""
-    records = list_runs(limit=limit)
+    records = _list_records(limit=limit)
     if not records:
         ui.stage_warn("runs", "no runs recorded yet - run 'verdict run' first")
         return
@@ -906,7 +946,7 @@ def report(
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the report in your browser"),
 ):
     """Export a run as a self-contained HTML page - readable, shareable, no JSON."""
-    record = load_run(_resolve_run_id(run_id))
+    record = _load_record(_resolve_run_id(run_id))
     if record is None:
         _fail("report", f"no run named {run_id} under .verdict/runs/")
     path = save_html(record)
@@ -918,15 +958,145 @@ def report(
 
 
 @app.command()
+def status(run_id: str = typer.Argument("last", help="Run to check ('last' = newest)")):
+    """One-line state of a run - queued/running in server mode, else its verdict."""
+    record = _load_record(_resolve_run_id(run_id))
+    if record is None:
+        _fail("status", f"no run named {run_id}")
+    state = record.get("status", "completed")
+    if state == "completed":
+        risk = record.get("risk") or {}
+        detail = f"[bold]{risk.get('level', '?')}[/]  {risk.get('passed', 0)} passed / {risk.get('failed', 0)} failed"
+    else:
+        detail = f"[yellow]{state}[/] at stage '{record.get('failed_stage', record.get('stage', '?'))}'"
+    if record.get("overrides"):
+        detail += f"  [magenta]OVERRIDDEN ({len(record['overrides'])})[/]"
+    ui.stage_ok("status", f"{record['run_id']}  {detail}")
+
+
+@app.command()
+def override(
+    run_id: str = typer.Argument(..., help="Run to override"),
+    reason: str = typer.Option(..., "--reason", help="Why this verdict is being overridden (required, logged)"),
+):
+    """Record a human override of a verdict - never edits the run, annotates it.
+
+    Override rate is a first-class metric (Section 13): a tool that cries
+    wolf gets disabled within a sprint, and this is the earliest signal."""
+    from verdict import store
+
+    if not reason.strip():
+        _fail("override", "an override requires a real --reason - it is the audit trail for disagreeing with the verdict")
+    config = load_config()
+    url = store.resolve_database_url(config)
+    if not url:
+        _fail(
+            "override",
+            "overrides need the Phase 2 data layer - set database_url "
+            "(verdict config set database_url postgresql://...) and run 'verdict db init'",
+        )
+    resolved = _resolve_run_id(run_id)
+    try:
+        # ensure the run exists in the DB even if it predates the data layer
+        if store.load_run_record(url, resolved) is None:
+            file_record = load_run(resolved)
+            if file_record is None:
+                _fail("override", f"no run named {resolved}")
+            store.save_run_record(url, file_record)
+        entry = store.add_override(url, resolved, reason.strip(), actor=_actor_name())
+    except store.StoreError as e:
+        _fail("override", str(e))
+    audit.append("run_overridden", {"reason": reason.strip()}, run_id=resolved)
+    ui.stage_ok("override", f"{resolved} overridden by {entry['actor']}")
+    ui.console.print(f"      [dim]reason:[/] {reason.strip()}")
+    try:
+        rate = store.override_rate(url)
+        if rate["override_rate"] is not None:
+            ui.console.print(
+                f"      [dim]override rate:[/] {rate['overridden_runs']}/{rate['completed_runs']} "
+                f"completed runs ({rate['override_rate']:.1%}) [dim]- rising rate = earliest sign of a broken core[/]"
+            )
+    except store.StoreError:
+        pass
+
+
+def _actor_name() -> str:
+    import getpass
+
+    try:
+        return f"user:{getpass.getuser()}"
+    except OSError:
+        return "user:unknown"
+
+
+db_app = typer.Typer(add_completion=False, help="Phase 2 data layer: Postgres setup and migration.")
+app.add_typer(db_app, name="db")
+
+
+@db_app.command("init")
+def db_init():
+    """Create the Postgres schema (idempotent - safe to re-run)."""
+    from verdict import store
+
+    config = load_config()
+    url = store.resolve_database_url(config)
+    if not url:
+        _fail("db", "no database_url configured - verdict config set database_url postgresql://user:pass@host:5432/verdict")
+    try:
+        store.init_schema(url)
+    except store.StoreError as e:
+        _fail("db", str(e))
+    ui.stage_ok("db", "schema ready (runs, results, audit_log, overrides, jobs)")
+
+
+@db_app.command("migrate-files")
+def db_migrate_files():
+    """Backfill existing .verdict/runs/*.json and audit.jsonl into Postgres."""
+    from verdict import store
+
+    config = load_config()
+    url = store.resolve_database_url(config)
+    if not url:
+        _fail("db", "no database_url configured")
+    try:
+        store.init_schema(url)
+        counts = store.migrate_files(url)
+    except store.StoreError as e:
+        _fail("db", str(e))
+    audit.append("db_migrated", counts)
+    ui.stage_ok("db", f"migrated {counts['runs']} run(s), {counts['audit_entries']} new audit entrie(s)")
+
+
+@db_app.command("stats")
+def db_stats():
+    """Override rate and run counts - the Section 13 first-class metric."""
+    from verdict import store
+
+    config = load_config()
+    url = store.resolve_database_url(config)
+    if not url:
+        _fail("db", "no database_url configured")
+    try:
+        rate = store.override_rate(url)
+    except store.StoreError as e:
+        _fail("db", str(e))
+    ui.stage_ok("db", f"{rate['completed_runs']} completed run(s), {rate['overridden_runs']} overridden")
+    if rate["override_rate"] is not None:
+        ui.console.print(f"      [dim]override rate:[/] {rate['override_rate']:.1%}")
+
+
+@app.command()
 def logs(run_id: str = typer.Argument("last", help="Run to inspect ('last' = newest)")):
     """Full evidence for a run: prompt, test code, sandbox output - the audit trail."""
-    record = load_run(_resolve_run_id(run_id))
+    record = _load_record(_resolve_run_id(run_id))
     if record is None:
         _fail("logs", f"no run named {run_id} under .verdict/runs/")
     ui.console.print(f"[bold cyan]run[/]     {record['run_id']}  [dim]({record['created_at']})[/]")
     ui.console.print(f"[bold cyan]model[/]   {record['model']}")
     intent_txt = record.get("intent") or "(never extracted)"
     ui.console.print(f"[bold cyan]intent[/]  {intent_txt.splitlines()[0]}")
+    for ov in record.get("overrides", []):
+        ui.console.print(f"[bold magenta]override[/] by {ov['actor']} at {ov['created_at']}: {ov['reason']}")
     if record.get("status", "completed") != "completed":
         ui.console.print(f"[bold cyan]status[/]  [yellow]{record['status']}[/] at stage '{record.get('failed_stage', '?')}': {record.get('reason', '')}")
         return

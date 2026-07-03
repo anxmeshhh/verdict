@@ -227,6 +227,8 @@ def runs_table(records: list[dict]) -> None:
             risk = record.get("risk") or {}
             level = risk.get("level", "?")
             verdict = Text(f" {level} ", style=RISK_STYLES.get(level, "bold"))
+            if record.get("overrides"):
+                verdict.append(" OVERRIDDEN ", style="bold magenta")
             evidence = f"{risk.get('passed', 0)} passed / {risk.get('failed', 0)} failed"
             if risk.get("inconclusive"):
                 evidence += f" / {risk['inconclusive']} no-evidence"

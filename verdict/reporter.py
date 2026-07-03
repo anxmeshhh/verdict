@@ -91,6 +91,13 @@ def save_run(record: dict, root: Path | None = None) -> Path:
     runs_dir.mkdir(parents=True, exist_ok=True)
     path = runs_dir / f"{record['run_id']}.json"
     path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+
+    # Phase 2 dual-write: mirror into Postgres when configured. File write
+    # already succeeded; a DB failure warns on stderr, never breaks the run.
+    from verdict import store
+    from verdict.config import load_config
+
+    store.mirror_run(record, load_config(root))
     return path
 
 
@@ -210,6 +217,11 @@ def render_html(record: dict) -> str:
         reasons += (
             f"<li><strong>{len(cap_dropped)} validated scenario(s) NOT run at all (--max-scenarios cap):</strong> "
             f"{_esc(', '.join(cap_dropped))}</li>"
+        )
+    for ov in record.get("overrides", []):
+        reasons += (
+            f"<li><strong>OVERRIDDEN</strong> by {_esc(ov.get('actor', '?'))} "
+            f"at {_esc(ov.get('created_at', '?'))}: {_esc(ov.get('reason', ''))}</li>"
         )
 
     coverage = risk.get("coverage")

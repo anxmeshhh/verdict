@@ -19,8 +19,12 @@ ACTION_TYPES = (
     "run_completed",
     "run_errored",
     "run_skipped",
+    "run_overridden",
     "config_change",
     "health_check",
+    "hook_installed",
+    "hook_removed",
+    "db_migrated",
 )
 
 
@@ -65,6 +69,14 @@ def append(
     }
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
+
+    # Phase 2 dual-write: mirror into Postgres when configured. The file
+    # write above already succeeded - a DB failure warns loudly (stderr)
+    # but never breaks the command. Local import avoids a cycle.
+    from verdict import store
+    from verdict.config import load_config
+
+    store.mirror_audit(entry, load_config(root))
     return entry
 
 

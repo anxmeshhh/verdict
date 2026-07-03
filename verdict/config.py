@@ -29,6 +29,10 @@ class Config:
     provider: str = DEFAULT_PROVIDER
     api_key: str = ""  # for API providers; VERDICT_API_KEY env var takes precedence
     base_url: str = ""  # override endpoint (required for provider=custom, e.g. a vLLM server)
+    # Phase 2 data layer: when set, runs/audit dual-write to Postgres and read
+    # commands prefer it. Empty = file store only (the Phase 1 default).
+    # VERDICT_DATABASE_URL env var takes precedence.
+    database_url: str = ""
 
 
 def config_dir(root: Path | None = None) -> Path:
