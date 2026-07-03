@@ -48,8 +48,21 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Reasoning-model `<think>` trace stripping | `verdict/generator.py`, `verdict/testgen.py` | correctness fix |
 | Reproducibility pin (seed) on cloud providers | `verdict/llm.py` | correctness fix |
 | Validator: unenforced-type-check hallucination guard | `verdict/validator.py` | correctness fix |
+| Scenario-gen cache (`--force-regenerate`) | `verdict/generator.py`, `verdict/cli.py` | post-Phase-1 |
 | Inconclusive-scenario visibility in coverage displays | `verdict/ui.py`, `verdict/reporter.py` | correctness fix |
 | Generalized unsupported-behavior-claim guard | `verdict/validator.py` | correctness fix |
+
+## 1a. Scenario-gen cache (decided 2026-07-03: cache scenario-gen only, never testgen/execution)
+
+- [ ] **[P0]** Same (diff, intent, model) re-run returns the identical previously-generated scenario set - only 1 real LLM call across N identical requests
+- [ ] **[P0]** `--force-regenerate` bypasses the cache and makes a real LLM call every time, overwriting the cache entry with the fresh result
+- [ ] **[P1]** A different model for the same diff+intent is a cache MISS (own cache entry, no cross-contamination)
+- [ ] **[P0]** Bumping `CACHE_VERSION` (or any change to `PROMPT_TEMPLATE`, which changes the rendered prompt automatically) invalidates old cache entries - old scenario proposals never keep being served across a scenario-gen logic/prompt change
+- [ ] **[P0]** A corrupt/unreadable cache file never breaks a run - falls back to a fresh LLM call silently
+- [ ] **[P0]** Confirmed by design: the FAILED-confirmation pass in `cli.py` only calls `testgen.generate_test_code`, never `generator.generate` - scenario-gen caching cannot mask or interfere with confirmation-pass behavior
+- [ ] **[P1]** `from_cache` is surfaced in the CLI stage line ("cached" note) and in the saved run record (`scenario_from_cache`) - a human or script reading a run can always tell whether scenario-gen actually called the LLM this run
+- [ ] Deliberately NOT cached: validate, testgen, sandbox execution - a PASSED must mean the code was actually run this time; caching execution would let a verdict silently outlive a changed Docker image, model, or sandbox environment with no signal that anything changed
+- [ ] Working-method note: repeat-run testing meant to surface intermittent model hallucinations (rerunning the same commit to see if a bad scenario recurs) now needs `--force-regenerate` explicitly, or every repeat is a guaranteed cache hit and looks artificially stable for the wrong reason
 
 ## 1. Config & Setup
 

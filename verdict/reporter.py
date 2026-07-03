@@ -49,6 +49,7 @@ def build_record(
         "diff_lines": intent_result.diff.count("\n"),
         "diff": intent_result.diff,
         "scenario_source": generation.source,
+        "scenario_from_cache": generation.from_cache,
         "generation_prompt": generation.prompt,
         "generation_raw_response": generation.raw_response,
         "results": [asdict(r) for r in results],

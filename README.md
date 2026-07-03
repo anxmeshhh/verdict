@@ -106,6 +106,23 @@ verdict config set base_url <url>        # only for provider=custom (vLLM, LM St
 
 Verdict warns loudly when a cloud provider is active: your diffs and intents leave the machine.
 
+### Scenario-gen caching
+
+Scenario generation (the one LLM step) is cached under `.verdict/cache/scenario_gen/`,
+keyed on the exact prompt + model. The same commit re-run against the same model returns
+the same scenario set instead of re-asking the model - cloud providers pin `temperature=0`/
+`seed=0` but still aren't guaranteed bit-exact (shared, batched inference), so caching is
+what actually delivers "same commit -> same scenario set," not the sampling params alone.
+
+This is scoped to scenario-gen only - validate/testgen/execute always run fresh against
+whatever scenario came out of the cache, so a stale cached scenario still gets caught by
+current validator logic. Test execution itself is never cached: a PASSED must mean the
+code was actually run *this* time, not replayed from a previous run.
+
+Pass `--force-regenerate` to `run`/`plan` to bypass the cache and ask the model fresh -
+use it whenever you're deliberately testing model reliability (e.g. hunting an intermittent
+hallucination), since a cache hit would otherwise hide it.
+
 ## Everyday commands
 
 ```

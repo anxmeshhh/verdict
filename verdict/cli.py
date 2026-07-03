@@ -382,6 +382,9 @@ def plan(
     intent: str = typer.Option(None, help="Explicit intent (required for uncommitted changes)"),
     path: list[str] = typer.Option(None, "--path", help="Only verify these files/folders (repeatable)"),
     manual: bool = typer.Option(False, "--manual", help="Write an editable scenario template instead of generating"),
+    force_regenerate: bool = typer.Option(
+        False, "--force-regenerate", help="Bypass the scenario-gen cache and ask the model fresh"
+    ),
 ):
     """Dry-run: show scenarios without executing them. --manual writes a template file."""
     repo = Path.cwd()
@@ -408,10 +411,11 @@ def plan(
 
     try:
         with ui.working(f"asking {config.model} for scenarios..."):
-            generation = generate(intent_result, config)
+            generation = generate(intent_result, config, repo=repo, force=force_regenerate)
     except GenerationError as e:
         _fail("scenario-gen", str(e))
-    ui.stage_ok("scenario-gen", f"{len(generation.scenarios)} scenario(s)")
+    cache_note = "  [dim](cached - same diff+intent+model as a previous run)[/]" if generation.from_cache else ""
+    ui.stage_ok("scenario-gen", f"{len(generation.scenarios)} scenario(s){cache_note}")
 
     validations = validate(generation.scenarios, intent_result.diff, intent_result.intent)
     kept = [v for v in validations if v.traceable]
@@ -434,6 +438,9 @@ def run(
     max_scenarios: int = typer.Option(4, help="Cap on scenarios executed per run"),
     timeout: int = typer.Option(300, help="Per-scenario sandbox timeout (seconds)"),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+    force_regenerate: bool = typer.Option(
+        False, "--force-regenerate", help="Bypass the scenario-gen cache and ask the model fresh"
+    ),
 ):
     """The full pipeline: intent -> scenarios -> validate -> sandbox -> score -> report."""
     repo = Path.cwd()
@@ -532,7 +539,7 @@ def run(
         else:
             try:
                 with ui.working(f"asking {config.model} for scenarios..."):
-                    llm_gen = generate(intent_result, config)
+                    llm_gen = generate(intent_result, config, repo=repo, force=force_regenerate)
             except GenerationError as e:
                 _abort("scenario-gen", str(e))
             _track(llm_gen.prompt_tokens, llm_gen.output_tokens, llm_gen.llm_duration_s)
@@ -560,11 +567,12 @@ def run(
             )
         try:
             with ui.working(f"asking {config.model} for scenarios..."):
-                generation = generate(intent_result, config)
+                generation = generate(intent_result, config, repo=repo, force=force_regenerate)
         except GenerationError as e:
             _abort("scenario-gen", str(e))
         _track(generation.prompt_tokens, generation.output_tokens, generation.llm_duration_s)
-        ui.stage_ok("scenario-gen", f"{len(generation.scenarios)} scenario(s) generated")
+        cache_note = "  [dim](cached)[/]" if generation.from_cache else ""
+        ui.stage_ok("scenario-gen", f"{len(generation.scenarios)} scenario(s) generated{cache_note}")
     for s in generation.scenarios:
         ui.scenario_line(s.name)
 

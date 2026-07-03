@@ -79,7 +79,7 @@ def shell_help() -> None:
     table = Table.grid(padding=(0, 3))
     table.add_column(style="cyan", justify="left")
     table.add_column(style="dim")
-    table.add_row("run [options]", "verify a change (--ref, --base, --intent, --scenarios, --hybrid)")
+    table.add_row("run [options]", "verify a change (--ref, --base, --intent, --scenarios, --hybrid, --force-regenerate)")
     table.add_row("watch [options]", "live mode: verify automatically when the working tree settles")
     table.add_row("plan [options]", "dry-run: show scenarios without executing (--manual writes a template)")
     table.add_row("runs", "browse past verdicts as a table")
