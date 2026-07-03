@@ -81,6 +81,33 @@ def _matches(term: str, evidence: set[str]) -> bool:
     return False
 
 
+_TYPE_ERROR_CLAIM_TERMS = ("typeerror", "type error", "valueerror", "value error")
+_RUNTIME_TYPE_CHECK_PATTERN = re.compile(r"raise\s+(type|value)error|isinstance\s*\(", re.IGNORECASE)
+
+
+def _claims_unenforced_type_check(scenario: Scenario, diff: str) -> bool:
+    """Python type hints are NOT enforced at runtime - a scenario claiming a
+    TypeError/ValueError gets raised purely from a type-hint mismatch is only
+    plausible if the diff's ADDED lines contain an explicit runtime check
+    (isinstance(...) / raise TypeError / raise ValueError somewhere). This is
+    a real, observed hallucination class term-overlap traceability cannot
+    catch on its own: the function name and even the exception name can
+    legitimately appear in the diff/intent while the specific behavioral
+    claim is still invented outright. Phase 0's original traceability guard
+    was built to catch scenarios about code that ISN'T in the diff at all -
+    not false claims about code that IS in the diff, which is a different
+    failure mode needing its own targeted check (same pattern as the
+    dead-function and broken-monkeypatch checks in testgen.py)."""
+    text = f"{scenario.name} {scenario.description}".lower()
+    if not any(t in text for t in _TYPE_ERROR_CLAIM_TERMS):
+        return False
+    added_lines = "\n".join(
+        line[1:] for line in diff.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    )
+    return not _RUNTIME_TYPE_CHECK_PATTERN.search(added_lines)
+
+
 def validate(scenarios: list[Scenario], diff: str, intent: str) -> list[ValidationResult]:
     evidence = _evidence_terms(diff, intent)
     results = []
@@ -88,6 +115,22 @@ def validate(scenarios: list[Scenario], diff: str, intent: str) -> list[Validati
         scenario_terms = _terms_of(f"{scenario.name} {scenario.description}")
         specific = scenario_terms - GENERIC_TERMS
         matched = sorted(t for t in specific if _matches(t, evidence))
+
+        if _claims_unenforced_type_check(scenario, diff):
+            results.append(
+                ValidationResult(
+                    scenario=scenario,
+                    traceable=False,
+                    matched_terms=matched,
+                    reason=(
+                        "scenario claims a TypeError/ValueError from a type-hint mismatch, but "
+                        "Python does not enforce type hints at runtime and the diff has no "
+                        "explicit isinstance()/raise check for it - not supported by the code, "
+                        "regardless of shared terms"
+                    ),
+                )
+            )
+            continue
 
         if len(matched) >= MIN_MATCHED_TERMS:
             results.append(

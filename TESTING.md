@@ -46,6 +46,8 @@ real intent-vs-behavior mismatch, not a syntax error.
 | JSON-mode-rejection fallback | `verdict/llm.py`, `verdict/generator.py` | correctness fix |
 | Rate-limit (429) Retry-After handling | `verdict/llm.py` | correctness fix |
 | Reasoning-model `<think>` trace stripping | `verdict/generator.py`, `verdict/testgen.py` | correctness fix |
+| Reproducibility pin (seed) on cloud providers | `verdict/llm.py` | correctness fix |
+| Validator: unenforced-type-check hallucination guard | `verdict/validator.py` | correctness fix |
 
 ## 1. Config & Setup
 
@@ -73,6 +75,13 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P1]** Exhausting all attempts on repeated 429s raises a message that specifically names rate-limiting as the cause, not a generic "unreachable"
 - [ ] **[P0]** **Regression: reasoning ("thinking") models must not surface as "model returned unusable JSON."** Groq's reasoning models (seen live: a Qwen build) prepend a `<think>...</think>` trace to the content by default outside enforced JSON mode - `json.loads` fails at char 0 on the leading `<`, indistinguishable at a glance from a genuinely empty response. `generator._extract_json` strips the think block, then trims to the outermost `{...}` unconditionally (safe no-op on already-clean JSON) to also drop any leading/trailing commentary. `testgen._strip_fences` gets the same think-block strip before its code-fence match
 - [ ] **[P1]** A truly empty LLM response still raises the original clear JSON-decode error - the fallback recovers noise around real JSON, it does not manufacture scenarios or code from nothing
+- [ ] **[P0]** **Regression: the temp=0/seed=0 reproducibility pin (originally ollama-only) must also apply to the cloud transport.** `_call_openai_compatible` now sends `"seed": 0` too - previously only `ollama.py` had it, so cloud providers were still fully unpinned despite `temperature=0`
+- [ ] **[P0]** A provider that rejects `seed` as an unknown field (confirmed live: Gemini's OpenAI-compat layer - `Unknown name "seed": Cannot find field`) falls back to omitting it and still completes the request, rather than hard-failing every call to that provider
+- [ ] **[P1]** Note for future runs: even with temp=0/seed=0, cloud providers do not guarantee bit-exact reproducibility (documented as "best effort" upstream) - this reduces variance, it does not eliminate it
+- [ ] **[P0]** **Regression: validator must reject a scenario claiming Python enforces type hints at runtime.** ("`login(None, ...)` should raise TypeError" when the diff only has a type hint, no `isinstance`/`raise` check) - reproduced live on cdcf9dd on a cloud model; term-overlap traceability alone marked it traceable since "login"/"TypeError"-adjacent terms happened to overlap, even though the specific behavioral claim was invented. `_claims_unenforced_type_check` in validator.py catches this one pattern by checking the diff's ADDED lines for an explicit runtime check before allowing a TypeError/ValueError claim through
+- [ ] **[P1]** A scenario making the same TypeError/ValueError claim where the diff DOES contain an explicit `isinstance()`/`raise` check must NOT be rejected by this guard - verified both directions
+- [ ] **[P1]** Verified zero regressions against Phase 0's 100 labeled scenarios (none trigger the new rule - it's additive, not a replacement for term-overlap matching)
+- [ ] Known scope, stated plainly: this catches one specific, real hallucination pattern (type-hint-implies-enforcement), the same way `find_dead_functions`/`find_broken_monkeypatch` catch specific patterns - it is NOT a general "does this behavioral claim logically follow from the diff" checker. That would require an LLM-judgment step, which is deliberately out of scope for a deterministic validator
 - [ ] **[P1]** `config get` (no key) → lists all keys, `api_key` masked as `****xxxx`
 - [ ] **[P1]** `config set` for each key: `model`, `ollama_url`, `provider`, `api_key`, `base_url`
 - [ ] **[P1]** `config set provider <invalid>` → rejected, config unchanged

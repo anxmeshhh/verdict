@@ -130,12 +130,23 @@ def _is_json_mode_rejection(status_code: int, detail: str) -> bool:
     )
 
 
+def _is_seed_unsupported(status_code: int, detail: str) -> bool:
+    """Not every OpenAI-compatible layer accepts `seed` (confirmed live:
+    Gemini's rejects it outright - 'Unknown name "seed": Cannot find field').
+    Narrow match so this can't swallow an unrelated 400."""
+    lowered = detail.lower()
+    return status_code == 400 and "seed" in lowered and (
+        "unknown" in lowered or "not supported" in lowered or "cannot find field" in lowered
+    )
+
+
 def _call_openai_compatible(
     prompt: str, config: Config, json_format: bool, temperature: float
 ) -> LLMResponse:
     base_url = resolve_base_url(config)
     api_key = resolve_api_key(config)
     use_json_mode = json_format
+    use_seed = True  # pin sampling for reproducibility where the provider allows it
 
     def build_request() -> urllib.request.Request:
         payload: dict = {
@@ -144,6 +155,8 @@ def _call_openai_compatible(
             "temperature": temperature,
             "stream": False,
         }
+        if use_seed:
+            payload["seed"] = 0
         if use_json_mode:
             payload["response_format"] = {"type": "json_object"}
         return urllib.request.Request(
@@ -187,6 +200,9 @@ def _call_openai_compatible(
                 # plain completion (the prompt already demands JSON-only
                 # text) and try the exact same attempt again immediately.
                 use_json_mode = False
+                continue
+            if use_seed and _is_seed_unsupported(e.code, detail):
+                use_seed = False
                 continue
             # 401/403 = bad key, 404 = bad model/base_url, 4xx generally our config - don't retry.
             # 429 (rate limit) and 5xx are transient - retry with backoff.
