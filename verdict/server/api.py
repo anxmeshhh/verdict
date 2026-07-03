@@ -38,6 +38,18 @@ app = FastAPI(
 )
 
 
+@app.on_event("startup")
+def _init_schema_on_startup() -> None:
+    """Best-effort schema init so GET /runs works before the first submit.
+    Postgres not up yet (compose race) is fine - every write path re-inits."""
+    url = store.resolve_database_url()
+    if url:
+        try:
+            store.init_schema(url)
+        except store.StoreError:
+            pass
+
+
 def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
     expected = os.environ.get(API_KEY_ENV, "").strip()
     if not expected:

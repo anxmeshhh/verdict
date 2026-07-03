@@ -12,6 +12,7 @@ Phase 1 tradeoff, explicit: the container keeps network access because
 dependency install (pip) needs it. Splitting install/run phases so the
 test itself runs with --network=none is Phase 3 hardening (Section 11).
 """
+import os
 import subprocess
 import tempfile
 import time
@@ -25,6 +26,38 @@ DEFAULT_IMAGE = "python:3.12-slim"
 DEFAULT_TIMEOUT = 300
 MEMORY_LIMIT = "512m"
 CPU_LIMIT = "1"
+
+# Docker-outside-of-Docker (compose worker): this process runs IN a container
+# but talks to the HOST daemon, so every -v path must be a host path. Format:
+# "container_prefix=host_prefix", e.g. "/data=C:\\verdict\\data". Unset (the
+# plain CLI case) means no translation - behavior byte-identical to Phase 1.
+HOST_PATH_MAP_ENV = "VERDICT_HOST_PATH_MAP"
+
+
+def _host_path(p: Path) -> str:
+    resolved = str(p.resolve())
+    mapping = os.environ.get(HOST_PATH_MAP_ENV, "").strip()
+    if not mapping or "=" not in mapping:
+        return resolved
+    container_prefix, _, host_prefix = mapping.partition("=")
+    posix = resolved.replace("\\", "/")
+    cp = container_prefix.rstrip("/")
+    if posix == cp or posix.startswith(cp + "/"):
+        return host_prefix.rstrip("/\\") + posix[len(cp):]
+    return resolved
+
+
+def _scratch_dir() -> str | None:
+    """Where the per-test scratch dir lives. In DooD mode the system temp dir
+    is container-local - the host daemon mounts a nonexistent path and the
+    test file silently vanishes - so scratch must live under the shared,
+    host-visible prefix instead."""
+    mapping = os.environ.get(HOST_PATH_MAP_ENV, "").strip()
+    if not mapping or "=" not in mapping:
+        return None  # plain CLI: system temp, unchanged
+    base = Path(mapping.partition("=")[0]) / "tmp"
+    base.mkdir(parents=True, exist_ok=True)
+    return str(base)
 
 # Exit code the generated test uses to say "cannot be checked by code"
 UNCHECKABLE_EXIT = 2
@@ -84,7 +117,7 @@ def run_test(
     """Run one generated test in an ephemeral container against the repo."""
     container = f"verdict-{uuid.uuid4().hex[:12]}"
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(dir=_scratch_dir()) as tmp:
         test_file = Path(tmp) / "scenario_test.py"
         test_file.write_text(test.code, encoding="utf-8")
 
@@ -100,8 +133,8 @@ def run_test(
             "--name", container,
             "--memory", MEMORY_LIMIT,
             "--cpus", CPU_LIMIT,
-            "-v", f"{repo.resolve()}:/src:ro",
-            "-v", f"{tmp}:/verdict:ro",
+            "-v", f"{_host_path(repo)}:/src:ro",
+            "-v", f"{_host_path(Path(tmp))}:/verdict:ro",
             # Running python against an absolute script path (below) sets
             # sys.path[0] to the SCRIPT's directory (/verdict), not the repo
             # copy at /app, even after `cd /app` - so repo modules would

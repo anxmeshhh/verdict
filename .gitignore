@@ -19,6 +19,10 @@ node_modules/
 # Env / secrets
 .env
 .env.*
+!.env.example
+
+# Server data dir (repos, sandbox scratch) - created by setup
+data/
 
 # OS
 .DS_Store
