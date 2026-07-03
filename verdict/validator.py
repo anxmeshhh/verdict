@@ -81,31 +81,77 @@ def _matches(term: str, evidence: set[str]) -> bool:
     return False
 
 
-_TYPE_ERROR_CLAIM_TERMS = ("typeerror", "type error", "valueerror", "value error")
-_RUNTIME_TYPE_CHECK_PATTERN = re.compile(r"raise\s+(type|value)error|isinstance\s*\(", re.IGNORECASE)
+# Recurring shape of hallucination: the model treats an IMPLICIT signal (a
+# type hint, a docstring word, a function's name) as if it were an EXPLICIT
+# behavioral guarantee, and invents a scenario asserting that guarantee.
+# Term-overlap traceability cannot catch this on its own - the function name,
+# and often even the claimed behavior's own vocabulary, legitimately appear
+# in the diff while the specific claim is still invented outright (Phase 0's
+# original guard was built for scenarios about code that ISN'T in the diff at
+# all - a different failure mode from a false claim about code that IS).
+#
+# Each entry: if a scenario's text matches `claim`, the diff's ADDED lines
+# must contain something matching `evidence`, or the scenario is rejected
+# regardless of term overlap. This is deliberately a small, named, growable
+# list in the same spirit as find_dead_functions/find_broken_monkeypatch -
+# not a general "does this claim logically follow from the diff" solver
+# (that needs semantic understanding, which is out of scope for a
+# deterministic validator). It covers the specific patterns observed live
+# plus the ones most likely to recur next; a genuinely novel invented claim
+# outside these categories will still slip through, same as any pattern list.
+_UNSUPPORTED_BEHAVIOR_CLAIMS = [
+    (
+        "type-enforcement",
+        re.compile(r"\btypeerror\b|\bvalueerror\b|\btype[- ]?error\b|\bvalue[- ]?error\b", re.IGNORECASE),
+        re.compile(r"raise\s+(type|value)error|isinstance\s*\(", re.IGNORECASE),
+        "claims a TypeError/ValueError from a type-hint mismatch, but Python does not "
+        "enforce type hints at runtime and the diff has no explicit isinstance()/raise "
+        "check for it",
+    ),
+    (
+        "logging-on-failure",
+        # "log(s|ging|ged)" NOT immediately followed by in/out (excludes the
+        # "user logging in"/"logged out" auth sense) AND near a failure/event
+        # word - caught live: "verify a user logging in" false-positived on a
+        # bare \blogs?\b before this was narrowed
+        re.compile(
+            r"\blog(?:s|ged|ging)?\b(?!\s*(?:in|out)\b).{0,25}\b(fail|error|exception|warn|event|audit)\w*\b"
+            r"|\b(fail|error|exception|warn|event|audit)\w*\b.{0,25}\blog(?:s|ged|ging)?\b(?!\s*(?:in|out)\b)",
+            re.IGNORECASE,
+        ),
+        re.compile(r"\blogging\.|\blogger\.|\blog\.(debug|info|warning|error|exception)\s*\(", re.IGNORECASE),
+        "claims a failure/event is logged, but the diff has no logging call at all "
+        "(no `logging.`/`logger.`/`log.<level>(` anywhere in the added lines)",
+    ),
+    (
+        "thread-safety",
+        re.compile(r"\bthread[- ]?safe|\bconcurren(t|cy)|\brace condition\b", re.IGNORECASE),
+        re.compile(r"\b\w*[lL]ock\s*\(|threading\.|asyncio\.Lock|\bwith\s+\w*lock", re.IGNORECASE),
+        "claims thread-safety/concurrency handling, but the diff has no lock or "
+        "synchronization primitive at all",
+    ),
+    (
+        "format-validation",
+        re.compile(r"\bvalid(ates?|ation)\b.{0,20}\b(email|format|schema|url)\b", re.IGNORECASE),
+        re.compile(r"@|re\.(match|search|fullmatch|compile)|\bschema\b|validators?\.", re.IGNORECASE),
+        "claims a specific input format is validated (email/url/schema), but the diff "
+        "has no pattern-matching or validation construct that could check it",
+    ),
+]
 
 
-def _claims_unenforced_type_check(scenario: Scenario, diff: str) -> bool:
-    """Python type hints are NOT enforced at runtime - a scenario claiming a
-    TypeError/ValueError gets raised purely from a type-hint mismatch is only
-    plausible if the diff's ADDED lines contain an explicit runtime check
-    (isinstance(...) / raise TypeError / raise ValueError somewhere). This is
-    a real, observed hallucination class term-overlap traceability cannot
-    catch on its own: the function name and even the exception name can
-    legitimately appear in the diff/intent while the specific behavioral
-    claim is still invented outright. Phase 0's original traceability guard
-    was built to catch scenarios about code that ISN'T in the diff at all -
-    not false claims about code that IS in the diff, which is a different
-    failure mode needing its own targeted check (same pattern as the
-    dead-function and broken-monkeypatch checks in testgen.py)."""
-    text = f"{scenario.name} {scenario.description}".lower()
-    if not any(t in text for t in _TYPE_ERROR_CLAIM_TERMS):
-        return False
+def _unsupported_behavior_claim(scenario: Scenario, diff: str) -> str | None:
+    """Returns the rejection reason if this scenario asserts one of the known
+    unsupported-claim shapes, else None."""
+    text = f"{scenario.name} {scenario.description}"
     added_lines = "\n".join(
         line[1:] for line in diff.splitlines()
         if line.startswith("+") and not line.startswith("+++")
     )
-    return not _RUNTIME_TYPE_CHECK_PATTERN.search(added_lines)
+    for _name, claim_pattern, evidence_pattern, explanation in _UNSUPPORTED_BEHAVIOR_CLAIMS:
+        if claim_pattern.search(text) and not evidence_pattern.search(added_lines):
+            return explanation
+    return None
 
 
 def validate(scenarios: list[Scenario], diff: str, intent: str) -> list[ValidationResult]:
@@ -116,18 +162,14 @@ def validate(scenarios: list[Scenario], diff: str, intent: str) -> list[Validati
         specific = scenario_terms - GENERIC_TERMS
         matched = sorted(t for t in specific if _matches(t, evidence))
 
-        if _claims_unenforced_type_check(scenario, diff):
+        unsupported_reason = _unsupported_behavior_claim(scenario, diff)
+        if unsupported_reason:
             results.append(
                 ValidationResult(
                     scenario=scenario,
                     traceable=False,
                     matched_terms=matched,
-                    reason=(
-                        "scenario claims a TypeError/ValueError from a type-hint mismatch, but "
-                        "Python does not enforce type hints at runtime and the diff has no "
-                        "explicit isinstance()/raise check for it - not supported by the code, "
-                        "regardless of shared terms"
-                    ),
+                    reason=f"scenario {unsupported_reason} - not supported by the code, regardless of shared terms",
                 )
             )
             continue
