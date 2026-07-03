@@ -455,6 +455,10 @@ def run(
     ),
 ):
     """The full pipeline: intent -> scenarios -> validate -> sandbox -> score -> report."""
+    if as_json:
+        # stdout must contain ONLY the final json blob - every progress/status
+        # line from here on goes to stderr instead, before anything can print
+        ui.route_to_stderr()
     repo = Path.cwd()
     config = load_config()
     if hybrid and scenarios_file is None:

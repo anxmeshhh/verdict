@@ -1,6 +1,13 @@
 """
 Rich-based presentation layer for the CLI. Presentation only - every piece
-of logic stays in the pipeline modules. --json output bypasses all of this.
+of logic stays in the pipeline modules.
+
+In --json mode, the FINAL json blob is the only thing allowed on stdout -
+anything else there breaks every consumer that pipes stdout into a JSON
+parser (CI, jq, a dashboard). route_to_stderr() moves all of this module's
+progress/status output to stderr instead, the standard stdout=result /
+stderr=human-log convention - a human watching a --json run in a terminal
+sees no difference, since terminals interleave both streams by default.
 """
 import sys
 
@@ -11,6 +18,12 @@ from rich.table import Table
 from rich.text import Text
 
 console = Console(highlight=False)
+
+
+def route_to_stderr() -> None:
+    """Call once, before any other ui.* output, whenever --json is active."""
+    global console
+    console = Console(stderr=True, highlight=False)
 
 
 def _pick(fancy: str, plain: str) -> str:

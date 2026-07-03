@@ -51,6 +51,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Scenario-gen cache (`--force-regenerate`) | `verdict/generator.py`, `verdict/cli.py` | post-Phase-1 |
 | Auto `.gitignore` for `.verdict/` on init/model | `verdict/config.py`, `verdict/cli.py` | correctness fix |
 | Pre-push hook: remote-name + silent-skip fix | `verdict/hooks.py` | correctness fix |
+| `--json` stdout purity (progress routed to stderr) | `verdict/ui.py`, `verdict/cli.py` | correctness fix |
 | Inconclusive-scenario visibility in coverage displays | `verdict/ui.py`, `verdict/reporter.py` | correctness fix |
 | Generalized unsupported-behavior-claim guard | `verdict/validator.py` | correctness fix |
 
@@ -177,7 +178,8 @@ real intent-vs-behavior mismatch, not a syntax error.
 
 - [ ] **[P1]** Bare `verdict` → branded interactive shell; `help`, `clear`, `exit`/`quit` all work
 - [ ] **[P1]** Every command runs identically inside the shell and as a direct CLI call
-- [ ] **[P1]** `--json` on `run` produces valid, complete JSON
+- [ ] **[P0]** **Regression: `--json` on `run` must produce PURE JSON on stdout, nothing else.** Confirmed live: progress/status lines (`✓ config`, `✓ intent`, `✓ scenario-gen`, ...) were printed via the same shared Rich console as the final JSON blob, both on stdout, both in the same stream a consumer (CI, `jq`, a dashboard) reads - proven directly by redirecting stderr away and taking the first line of stdout: it was `"+ config groq and Docker ready"`, not `{`. Fixed with `ui.route_to_stderr()`, called at the top of `run()` whenever `--json` is set, before anything can print - moves ALL progress output to stderr (the standard stdout=result/stderr=log convention), leaving only the final `typer.echo(format_json(...))` on stdout. A human watching a `--json` run in a terminal sees no difference (both streams interleave there by default)
+- [ ] **[P1]** Verified both directions: with `--json`, stdout is exactly the JSON blob (parses cleanly, nothing before/after) and all progress lines land on stderr instead; without `--json`, behavior is completely unchanged (progress still goes to stdout as before) - no regression for interactive/human use
 - [ ] **[P1]** `--path` works consistently across `run`, `plan`, and `watch`
 - [ ] **[P0]** Exit code is 0 only when risk is `LOW`; every other outcome (MEDIUM/HIGH/UNVERIFIED/errored/skipped) exits non-zero
 
