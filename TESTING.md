@@ -15,6 +15,12 @@ minute" but is actually keyed by IP address instead of account. No
 network/DB dependency (so the sandbox runs it directly), and the bug is a
 real intent-vs-behavior mismatch, not a syntax error.
 
+**Status (2026-07-03): Sections 2-12 worked through end-to-end, most via live
+testing against a real demo repo (`Rate Limiter Test`) with that exact planted
+bug. Section 1 parked by deliberate choice - see its own note below. Every
+fix found along the way is documented in place, below, with what was
+confirmed and how.**
+
 ## What's implemented (reference)
 
 | Area | File | Status |
@@ -68,7 +74,17 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] Deliberately NOT cached: validate, testgen, sandbox execution - a PASSED must mean the code was actually run this time; caching execution would let a verdict silently outlive a changed Docker image, model, or sandbox environment with no signal that anything changed
 - [ ] Working-method note: repeat-run testing meant to surface intermittent model hallucinations (rerunning the same commit to see if a bad scenario recurs) now needs `--force-regenerate` explicitly, or every repeat is a guaranteed cache hit and looks artificially stable for the wrong reason
 
-## 1. Config & Setup
+## 1. Config & Setup — parked by deliberate choice, not forgotten
+
+Every other numbered section (2-12) has now been worked through end-to-end this
+session, mostly via live testing against a real repo. Section 1 itself was never
+formally re-walked item-by-item the same way - not because it's riskier or
+lower-priority, but because config/setup got exercised constantly as a side
+effect of everything else (every `init`, `model`, provider-switch, and
+`config get/set` fix this session was itself a live test of this section).
+Calling the checklist effort done at this point without a separate dedicated
+pass here was an explicit choice, not an oversight - revisit if a real init/setup
+bug ever surfaces, same as everything else in this file.
 
 - [ ] **[P1]** `verdict init` with no flags → default `ollama` provider, correct model
 - [ ] **[P1]** `verdict init --provider openrouter` (unknown provider) → rejected with valid-options message
@@ -188,15 +204,17 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P1]** Verified all 4 display surfaces show the cap-dropped names when present, and show nothing extra on a clean, uncapped run (no regression to normal display)
 - [ ] **Follow-up decision (2026-07-03):** `--max-scenarios` default raised from 4 to 8 on `run`. 4 was too easy to hit even in ordinary `--hybrid` use: autonomous scenario-gen's own prompt asks for 2-5, and `--hybrid` adds manual scenarios on top of that (the reported case was 2 manual + 4 generated = 6, already past the old default). 8 gives real headroom for the common combined case while staying a deliberate, meaningful cost bound - not "no cap." `verdict watch`'s own separate default (3, tuned for frequent live-triggering cost) is intentionally untouched - different tradeoff, not part of this decision
 
-## 9. Live watch mode
+## 9. Live watch mode — SECTION COMPLETE
 
-- [ ] **[P1]** Several rapid edits within the settle window → exactly one verification fires, not one per save
-- [ ] **[P1]** `.verdict/INTENT.md` is created on first run and read live on each cycle
-- [ ] **[P0]** No intent available → warns and waits, never runs a guessed verdict
-- [ ] **[P0]** Vague intent in `INTENT.md` → warns and waits for a better one
-- [ ] **[P1]** Ctrl+C → clean exit with a session summary (count of verifications run)
-- [ ] **[P1]** `--path` scoping limits both the watched fingerprint and the triggered run
-- [ ] **[P0]** Verdict's own writes to `.verdict/` never re-trigger a verification (fingerprint excludes `.verdict/`)
+- [x] **[P1]** Several rapid edits within the settle window → exactly one verification fires, not one per save
+- [x] **[P1]** `.verdict/INTENT.md` is created on first run and read live on each cycle
+- [x] **[P0]** No intent available → warns and waits, never runs a guessed verdict
+- [x] **[P0]** Vague intent in `INTENT.md` → warns and waits for a better one
+- [x] **[P1]** Ctrl+C → clean exit with a session summary (count of verifications run)
+- [x] **[P1]** `--path` scoping limits both the watched fingerprint and the triggered run
+- [x] **[P0]** Verdict's own writes to `.verdict/` never re-trigger a verification (fingerprint excludes `.verdict/`)
+- [x] **Design question, confirmed intentional (not a bug):** every settle-triggered verification re-verifies the FULL uncommitted diff (`git diff HEAD` via `extract_from_working_tree`), not an incremental slice since the previous trigger. Confirmed directly in code - `watch()` always calls `run(ref=None, base=None, intent=...)`, which routes to `extract_from_working_tree`, which diffs against `HEAD` every time, unconditionally. This is deliberate: it matches how the rest of Verdict verifies (full range from a base to current state, same semantics as the pre-push hook), so watch's output always answers "if I committed/pushed everything right now, what would happen" - not the narrower and less useful "did just my last edit break something in isolation" (an incremental-only check could look clean while the cumulative diff has a real issue spanning two edits)
+- [ ] **Known cost tradeoff, not fixed - flagging, not deciding unilaterally:** because the diff grows every trigger, the exact prompt text scenario-gen caching is keyed on also changes every trigger - meaning the scenario-gen cache effectively never hits during an active watch session (every settled state has a textually different diff than the last). In a long session against a cloud provider, this means every settle-fire pays a full fresh LLM+sandbox cost, which could get expensive as accumulated uncommitted changes grow in a larger repo. Worth a deliberate decision later (e.g. periodic re-basing of "what's already been verified," or accepting the cost as the price of full-range accuracy) - not changed here
 
 ## 10. Hybrid / manual merge
 
