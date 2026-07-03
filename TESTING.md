@@ -198,18 +198,18 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P1]** Duplicate scenario (by name or ≥0.8 description overlap) → manual version wins, duplicate dropped
 - [ ] **[P1]** `--hybrid` without `--scenarios` → rejected with a clear error
 
-## 11. Git pre-push hook
+## 11. Git pre-push hook — SECTION COMPLETE (verified twice: sandbox + live real-repo testing)
 
-- [ ] **[P1]** `install-hook` writes the hook; `uninstall-hook` removes it cleanly
-- [ ] **[P0]** Installing over an existing foreign (non-Verdict) hook is refused, not overwritten
-- [ ] **[P0]** Pushing a non-LOW-risk range is blocked
-- [ ] **[P1]** `git push --no-verify` bypasses on purpose
-- [ ] **[P0]** The hook verifies exactly the commit range being pushed, nothing more/less
-- [ ] **[P0]** **Regression: the hook must not silently skip verification on a new-branch push.** Root cause confirmed live with a real bare local remote added under a non-"origin" name: `remote_sha=zero` (first push of a new branch - one of the most common real git workflows, not an edge case) fell back to `git merge-base "$local_sha" origin/HEAD`, which doesn't exist unless the remote happens to be named `origin` AND has `HEAD` tracked locally - neither is guaranteed. The old script's fallback for "no merge-base found" was a bare `continue`: zero output, exit 0, a push that was never checked looks byte-identical to one that passed
-- [ ] **[P0]** Fixed: use `$1` (the remote name git actually passes to a pre-push hook) instead of hardcoding `origin`, and try the remote's tracked `HEAD` first, then `main`/`master` as fallback candidate branch names, before giving up
-- [ ] **[P0]** If truly no base can be determined (genuinely orphaned first branch, remote has nothing to compare against), the hook now prints an explicit "could not determine a base commit - skipping verification (nothing was checked)" line instead of silently exiting - verified this path is reachable and non-silent
-- [ ] **[P0]** Verified end-to-end against a real bare-repo sandbox mirroring the exact reported setup (non-"origin" remote name, no `HEAD` ref tracked, only `main` present): old hook script silently skips with zero output; new hook script correctly resolves the base via the remote's `main` and reaches `verdict run --base <resolved> --ref <local>` with the right arguments
-- [ ] **[P1]** `install-hook` auto-upgrades an outdated verdict-installed hook in place (detected via marker present + content differs) instead of requiring a manual uninstall/reinstall round-trip - verified: outdated hook gets replaced, a second install() call correctly reports "already installed and up to date," and a genuinely foreign (non-verdict) hook is still refused, not clobbered
+- [x] **[P1]** `install-hook` writes the hook; `uninstall-hook` removes it cleanly - live-confirmed the hook FILE is actually deleted (not just disabled/neutered), and a push afterward behaves exactly like an unhooked repo
+- [x] **[P0]** Installing over an existing foreign (non-Verdict) hook is refused, not overwritten - confirmed both in sandbox and live
+- [x] **[P0]** Pushing a non-LOW-risk range is blocked - confirmed live for real: a genuinely HIGH-risk push was blocked, exit code caused git to refuse it (not a simulated/mocked result)
+- [x] **[P1]** `git push --no-verify` bypasses on purpose - confirmed live, clean
+- [x] **[P0]** The hook verifies exactly the commit range being pushed, nothing more/less
+- [x] **[P0]** **Regression: the hook must not silently skip verification on a new-branch push.** Root cause confirmed live with a real bare local remote added under a non-"origin" name: `remote_sha=zero` (first push of a new branch - one of the most common real git workflows, not an edge case) fell back to `git merge-base "$local_sha" origin/HEAD`, which doesn't exist unless the remote happens to be named `origin` AND has `HEAD` tracked locally - neither is guaranteed. The old script's fallback for "no merge-base found" was a bare `continue`: zero output, exit 0, a push that was never checked looks byte-identical to one that passed
+- [x] **[P0]** Fixed: use `$1` (the remote name git actually passes to a pre-push hook) instead of hardcoding `origin`, and try the remote's tracked `HEAD` first, then `main`/`master` as fallback candidate branch names, before giving up
+- [x] **[P0]** If truly no base can be determined (genuinely orphaned first branch, remote has nothing to compare against), the hook now prints an explicit "could not determine a base commit - skipping verification (nothing was checked)" line instead of silently exiting - verified this path is reachable and non-silent
+- [x] **[P0]** Verified end-to-end against a real bare-repo sandbox mirroring the exact reported setup (non-"origin" remote name, no `HEAD` ref tracked, only `main` present): old hook script silently skips with zero output; new hook script correctly resolves the base via the remote's `main` and reaches `verdict run --base <resolved> --ref <local>` with the right arguments
+- [x] **[P1]** `install-hook` auto-upgrades an outdated verdict-installed hook in place (detected via marker present + content differs) instead of requiring a manual uninstall/reinstall round-trip - verified: outdated hook gets replaced, a second install() call correctly reports "already installed and up to date," and a genuinely foreign (non-verdict) hook is still refused, not clobbered; independently re-confirmed live (the fixed version correctly replaced the buggy one in place on the real test repo)
 
 ## 12. Audit log
 
