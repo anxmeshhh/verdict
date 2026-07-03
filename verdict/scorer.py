@@ -11,6 +11,18 @@ If nothing conclusive ran, the verdict is UNVERIFIED - never a confident LOW
 on zero evidence (Section 13: silence beats a wrong verdict).
 
 Doc-example calibration (Section 8): 1/3 passed -> coverage 33% -> HIGH.
+
+Deliberate, accepted limitation (decided, not emergent): a scenario that
+comes back "uncertain" every time - because the generated test itself is
+broken, not because the code is - is risk-neutral forever under this scheme.
+It costs nothing, the same way a FAILED scenario costs real coverage. In
+principle that means code whose behavior happens to produce hard-to-test-
+looking scenarios could score better than it should. We accept this for now
+because the alternative (treating a bad test as evidence against the code)
+is worse - a broken check proving nothing must never be scored as if it
+proved something. If this needs revisiting (e.g. an inconclusive-rate cap
+that forces UNVERIFIED past some threshold), it should be a deliberate
+scoring-policy change, not something bolted on quietly.
 """
 from dataclasses import dataclass, field
 
