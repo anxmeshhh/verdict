@@ -46,6 +46,12 @@ directory). Rules:
   no HTTP servers. Never call anything that needs one. Verify behavior by
   importing modules and calling functions directly, monkeypatching any
   function that would touch a service.
+- If you import a name directly (`from module import thing`), do NOT also
+  try to patch it as a module attribute (`module.thing = fake`) - that
+  assignment never affects the name you already imported directly, so the
+  fake is silently never used. Either patch consistently with
+  `unittest.mock.patch("module.thing", fake)`, or only ever refer to it as
+  `module.thing` (never import it directly) if you intend to patch it.
 - Import every module you use. Do not write outside /tmp.
 - If the scenario cannot be checked by code at all, print why and call sys.exit(2).
 
@@ -116,6 +122,57 @@ def find_dead_functions(code: str) -> list[str]:
     return sorted(top_level - referenced)
 
 
+def find_broken_monkeypatch(code: str) -> list[str]:
+    """Deterministic check for the classic Python footgun: `from X import Y`
+    binds Y directly in this file's namespace, so a later `X.Y = fake`
+    assignment patches the module object but never touches that already-bound
+    name - every subsequent bare `Y(...)` call still runs the real Y, while
+    the test believes it's exercising the fake. This reproduces consistently
+    (same wrong assumption every time), so the FAILED-confirmation pass
+    cannot catch it - regeneration just makes the same mistake again. This
+    check catches the pattern the confirmation pass structurally can't."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []  # lint_test_code's syntax check already blocks this case
+
+    direct_imports: dict[str, str] = {}  # name -> module it was imported from
+    module_aliases: dict[str, str] = {}  # local alias -> module name
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                direct_imports[alias.asname or alias.name] = node.module
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                module_aliases[alias.asname or alias.name] = alias.name
+
+    bare_calls = {
+        node.func.id for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+
+    problems = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if not (isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name)):
+                continue
+            module_alias = target.value.id
+            attr_name = target.attr
+            if module_aliases.get(module_alias) != direct_imports.get(attr_name):
+                continue
+            if attr_name in bare_calls:
+                problems.append(
+                    f"'{module_alias}.{attr_name} = ...' patches the module attribute, but "
+                    f"'{attr_name}' was imported directly via 'from {direct_imports[attr_name]} "
+                    f"import {attr_name}' and is later called as a bare '{attr_name}(...)' - that "
+                    f"call uses the real, unpatched function; the patch has no effect on it."
+                )
+    return problems
+
+
 MAX_ATTEMPTS = 3
 
 
@@ -172,6 +229,7 @@ def generate_test_code(
                 "prove nothing. Call them immediately after defining them, or "
                 "write the check as top-level code with no function wrapper."
             ]
+        problems = problems + find_broken_monkeypatch(code)
         if not problems:
             return GeneratedTest(
                 scenario=scenario,
