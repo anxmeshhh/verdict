@@ -125,6 +125,8 @@ def format_terminal(record: dict) -> str:
     lines = []
     coverage = risk["coverage"]
     coverage_txt = f" - coverage {coverage:.0%}" if coverage is not None else ""
+    if risk.get("inconclusive"):
+        coverage_txt += f" ({risk['inconclusive']} scenario(s) produced no evidence, excluded)"
     lines.append(f"{risk['level']} RISK - {risk['passed']}/{risk['passed'] + risk['failed']} conclusive passed{coverage_txt}")
     lines.append("")
     for r in record["results"]:
@@ -199,6 +201,10 @@ def render_html(record: dict) -> str:
 
     coverage = risk.get("coverage")
     coverage_txt = f"{coverage:.0%} of validated scenarios reached a conclusive result" if coverage is not None else "no conclusive evidence - human review required"
+    if risk.get("inconclusive"):
+        # plain "·", not the &middot; HTML entity - this string goes through
+        # _esc() below, which would escape the literal "&" into "&amp;middot;"
+        coverage_txt += f" · {risk['inconclusive']} scenario(s) produced no evidence and were excluded from that figure"
     tokens = record.get("tokens") or {}
     tokens_txt = (
         f"{tokens.get('llm_calls', 0)} LLM call(s) &middot; {tokens.get('prompt_tokens', 0):,} tokens in / "

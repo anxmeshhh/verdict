@@ -48,6 +48,7 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Reasoning-model `<think>` trace stripping | `verdict/generator.py`, `verdict/testgen.py` | correctness fix |
 | Reproducibility pin (seed) on cloud providers | `verdict/llm.py` | correctness fix |
 | Validator: unenforced-type-check hallucination guard | `verdict/validator.py` | correctness fix |
+| Inconclusive-scenario visibility in coverage displays | `verdict/ui.py`, `verdict/reporter.py` | correctness fix |
 
 ## 1. Config & Setup
 
@@ -82,6 +83,10 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P1]** A scenario making the same TypeError/ValueError claim where the diff DOES contain an explicit `isinstance()`/`raise` check must NOT be rejected by this guard - verified both directions
 - [ ] **[P1]** Verified zero regressions against Phase 0's 100 labeled scenarios (none trigger the new rule - it's additive, not a replacement for term-overlap matching)
 - [ ] Known scope, stated plainly: this catches one specific, real hallucination pattern (type-hint-implies-enforcement), the same way `find_dead_functions`/`find_broken_monkeypatch` catch specific patterns - it is NOT a general "does this behavioral claim logically follow from the diff" checker. That would require an LLM-judgment step, which is deliberately out of scope for a deterministic validator
+- [ ] **Process-lifetime caveat, worth remembering when re-testing a fix live:** the interactive `verdict` shell is one long-lived Python process - editing/committing source (even with an editable install) does NOT hot-reload already-imported modules in a shell that's already running. Always exit and start a fresh shell (or invoke `verdict` freshly from a plain terminal) after a code change before concluding a fix "didn't work" - confirmed this explains an apparent validator-fix regression that turned out to not exist (fresh-process test passed correctly; the reported reruns were ~1-2 minutes inside an already-running shell session)
+- [ ] **[P0]** **Regression: coverage must not silently make inconclusive scenarios invisible.** `scorer.score()` deliberately excludes uncertain/error/timeout results from the coverage denominator (by design - non-evidence shouldn't count for or against a change), but the human-facing summary line ("3/3 conclusive passed · coverage 100%") said nothing about the excluded scenario - reading as "everything was checked" when one requirement produced zero evidence at all (in the reported case: a broken generated test that falsely claimed `check_login is not defined`, when it plainly is). Fixed by adding an explicit "N scenario(s) produced no evidence (excluded from coverage)" note to the headline in `ui.verdict_panel`, the compact `ui.runs_table` evidence column, `reporter.format_terminal`, and `reporter.render_html` - wherever the underlying scorer data was already correct but the summary display buried the caveat
+- [ ] **[P1]** No spurious note when `inconclusive == 0` (a genuinely clean run) - verified against a real clean 4/4 run record
+- [ ] **[P0]** **Regression caught before shipping:** the HTML report's added `&middot;` text was passed through `_esc()` along with the rest of `coverage_txt`, which would have double-escaped it into a literal visible `&amp;middot;` on the page. Fixed by using a plain "·" character instead of an HTML entity in that string. Verified the raw UTF-8 bytes in the rendered file are the actual middle-dot character, not the escaped entity text
 - [ ] **[P1]** `config get` (no key) → lists all keys, `api_key` masked as `****xxxx`
 - [ ] **[P1]** `config set` for each key: `model`, `ollama_url`, `provider`, `api_key`, `base_url`
 - [ ] **[P1]** `config set provider <invalid>` → rejected, config unchanged

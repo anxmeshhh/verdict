@@ -147,11 +147,22 @@ def verdict_panel(record: dict) -> None:
 
     coverage = risk["coverage"]
     conclusive = risk["passed"] + risk["failed"]
+    inconclusive = risk.get("inconclusive", 0)
     headline = Text()
     headline.append(f" {level} RISK ", style=style)
     if coverage is not None:
         headline.append(f"  {risk['passed']}/{conclusive} conclusive passed", style="bold")
         headline.append(f"  {DOT}  coverage {coverage:.0%}", style="dim")
+        # Coverage is deliberately computed over conclusive results only
+        # (uncertain/error/timeout are non-evidence, not a strike against the
+        # change) - but that means a scenario the model couldn't check at all
+        # is invisible in "100% coverage" unless called out right here too,
+        # not just buried in the reasons list below.
+        if inconclusive:
+            headline.append(
+                f"  {DOT}  {inconclusive} scenario(s) produced no evidence (excluded from coverage)",
+                style="bold yellow",
+            )
     else:
         headline.append("  no conclusive evidence - human review required", style="bold yellow")
 
@@ -194,6 +205,8 @@ def runs_table(records: list[dict]) -> None:
             level = risk.get("level", "?")
             verdict = Text(f" {level} ", style=RISK_STYLES.get(level, "bold"))
             evidence = f"{risk.get('passed', 0)} passed / {risk.get('failed', 0)} failed"
+            if risk.get("inconclusive"):
+                evidence += f" / {risk['inconclusive']} no-evidence"
         else:
             verdict = Text(f" {status.upper()} ", style="bold yellow" if status == "errored" else "dim")
             evidence = f"at {record.get('failed_stage', '?')}"
