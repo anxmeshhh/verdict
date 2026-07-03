@@ -36,6 +36,8 @@ real intent-vs-behavior mismatch, not a syntax error.
 | Dead-function detection | `verdict/testgen.py` | correctness fix |
 | Range vagueness fix | `verdict/intent.py` | correctness fix |
 | Reproducibility fix (temp=0, seed=0) | `verdict/ollama.py`, `verdict/llm.py` | correctness fix |
+| Validator embedded-term matching | `verdict/validator.py` | correctness fix |
+| Intent display fix | `verdict/cli.py` | correctness fix |
 | FAILED-result confirmation | `verdict/cli.py` | correctness fix |
 
 ## 1. Config & Setup
@@ -153,6 +155,8 @@ real intent-vs-behavior mismatch, not a syntax error.
 - [ ] **[P0]** **Range vagueness fix**: a `--base` range whose HEAD commit is vague (`"wip"`) but contains a genuinely descriptive earlier commit is NOT flagged vague; a range where every commit is genuinely vague still is
 - [ ] **[P0]** **Reproducibility fix**: the same fixed diff/intent, run through `verdict plan` repeatedly, produces the same scenario count and the same traceability result every time (temperature=0.0 + fixed seed) — a flip between e.g. 4/4 and 3/4 traceable on unchanged input is a regression
 - [ ] **[P2]** A range built from a *moving* relative ref (e.g. `--base HEAD~2` re-run after adding more commits) is expected to change results — that's the ref pointing at different commits, not nondeterminism; don't confuse the two when testing
+- [ ] **[P0]** **Validator embedded-term fix**: a scenario describing a real, embedded identifier form (e.g. `"password with digits"` against code that does `isdigit`) is traceable, not dropped — the term matcher must catch shared roots anywhere in the word, not just at the start
+- [ ] **[P1]** **Intent display fix**: for a range accepted because an *older* commit is descriptive (not the newest), the displayed intent shows that governing commit, not just HEAD's message
 
 ## 14. Resilience / stress / isolation
 
