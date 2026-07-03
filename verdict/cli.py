@@ -33,6 +33,23 @@ from verdict.intent import (
     extract_from_range,
     extract_from_working_tree,
 )
+
+
+def _display_intent_line(intent: str) -> str:
+    """A range's intent can be several commit subjects joined together; the
+    one that actually cleared the vagueness bar (and is doing the real work
+    of describing the change) isn't necessarily the newest commit. Show that
+    one instead of blindly always showing line 0 - a human skimming
+    intent: "tmp" when the run was accepted has every reason to wonder what
+    actually justified it."""
+    lines = [ln for ln in intent.splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    for line in lines:
+        if check_vagueness(line) is None:
+            extra = f"  [dim](+{len(lines) - 1} more commit(s) in range)[/]" if len(lines) > 1 else ""
+            return line[:70] + extra
+    return lines[0][:70]
 from verdict.reporter import (
     build_incomplete_record,
     build_record,
@@ -226,7 +243,7 @@ def plan(
         ui.console.print(f"      [dim]edit it, then:[/] [cyan]verdict run --scenarios {path}[/]")
         return
 
-    ui.stage_ok("intent", f'"{intent_result.intent.splitlines()[0][:70]}"')
+    ui.stage_ok("intent", f'"{_display_intent_line(intent_result.intent)}"')
     if intent_result.vague:
         _fail("scenario-gen", f"intent too vague: {intent_result.vague_reason}")
 
@@ -339,7 +356,7 @@ def run(
     if not intent_result.diff.strip():
         scope = f" under {', '.join(path)}" if path else ""
         _abort("intent", f"diff is empty{scope} - nothing to verify", status="skipped")
-    ui.stage_ok("intent", f'"{intent_result.intent.splitlines()[0][:70]}"')
+    ui.stage_ok("intent", f'"{_display_intent_line(intent_result.intent)}"')
     if path:
         ui.stage_note("scope", f"only verifying: {', '.join(path)}")
 

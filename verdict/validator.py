@@ -66,13 +66,17 @@ def _evidence_terms(diff: str, intent: str) -> set[str]:
 
 
 def _matches(term: str, evidence: set[str]) -> bool:
-    """Exact match, or shared stem/prefix (>=4 chars) so word forms line up:
-    'slow'/'slower', 'mirror'/'mirrors', 'auth'/'authentication'."""
+    """Exact match, or a shared root (>=4 chars) anywhere in the other word so
+    word forms line up: 'slow'/'slower', 'mirror'/'mirrors', 'auth'/
+    'authentication', and - not just prefixes - 'digit'/'isdigit',
+    'attr'/'hasattr', 'valid'/'invalid'. Real diffs are full of is-/has-/get-/
+    in- prefixed identifiers whose plain-English root only ever appears
+    embedded, never leading; a prefix-only check drops those every time."""
     if term in evidence:
         return True
     for ev in evidence:
         shorter, longer = (term, ev) if len(term) <= len(ev) else (ev, term)
-        if len(shorter) >= 4 and longer.startswith(shorter):
+        if len(shorter) >= 4 and shorter in longer:
             return True
     return False
 
