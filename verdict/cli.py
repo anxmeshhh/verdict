@@ -75,7 +75,17 @@ class _CliEvents:
     def working(self, message: str):
         return ui.working(message)
 
-app = typer.Typer(add_completion=False, help="Verdict - proves code does what it claims, before a human reviews it.")
+app = typer.Typer(
+    add_completion=False,
+    help=(
+        "Verdict reads a code change plus what it's supposed to do, generates real\n"
+        "tests for it, runs them in an isolated sandbox, and tells you LOW/MEDIUM/HIGH\n"
+        "risk with evidence - before a human has to review it blind.\n\n"
+        "New here? Run 'verdict init' once, then 'verdict check' any time - those two\n"
+        "cover most of what you need. Everything else is here when you want more\n"
+        "control. Commands below are grouped roughly in the order you'd reach for them."
+    ),
+)
 
 
 @app.callback(invoke_without_command=True)
@@ -86,11 +96,17 @@ def _main(ctx: typer.Context):
 
 
 def _shell() -> None:
-    config = load_config()
-    with ui.working("starting verdict..."):
-        llm_ok = llm.check(config).reachable
-        docker_ok = check_docker()
-    ui.shell_banner(config.model, config.provider, llm_ok, docker_ok)
+    if not is_initialized():
+        # Checking LLM/Docker liveness before init would show a scary "down"
+        # for a provider the user never chose (a fresh Config() defaults to
+        # ollama) - skip straight to the one real next step instead.
+        ui.first_run_banner()
+    else:
+        config = load_config()
+        with ui.working("starting verdict..."):
+            llm_ok = llm.check(config).reachable
+            docker_ok = check_docker()
+        ui.shell_banner(config.model, config.provider, llm_ok, docker_ok)
 
     group = typer.main.get_command(app)
     while True:
@@ -151,7 +167,7 @@ MODEL_HINTS = {
 }
 
 
-@app.command()
+@app.command(rich_help_panel="Getting started")
 def init(
     model: str = typer.Option(None, help="Model to use (defaults to qwen2.5-coder:7b for ollama)"),
     ollama_url: str = typer.Option(None, help="Ollama server URL (defaults to http://localhost:11434)"),
@@ -200,6 +216,7 @@ def init(
         ui.stage_ok("gitignore", ".verdict/ already ignored")
 
     _verify_llm_ready(config)
+    ui.console.print("\n  [dim]set up. try:[/] [cyan]verdict check[/]  [dim]- verifies your last commit or uncommitted changes[/]")
 
 
 def _verify_llm_ready(config: Config) -> None:
@@ -263,7 +280,7 @@ def _pick_from_list(models: list[str], current: str) -> str:
         ui.stage_warn("model", f"no model matches '{raw}' - try a shorter filter")
 
 
-@app.command()
+@app.command(rich_help_panel="Getting started")
 def model():
     """Interactive picker: choose a provider, then pick the exact model it
     offers right now - fetched live from the provider, never typed blind.
@@ -351,7 +368,7 @@ def model():
     _verify_llm_ready(config)
 
 
-@app.command()
+@app.command(rich_help_panel="Getting started")
 def health():
     """Liveness check across dependencies - honest, never faked."""
     config = load_config()
@@ -412,7 +429,7 @@ def health():
     raise typer.Exit(code=exit_code)
 
 
-@app.command()
+@app.command(rich_help_panel="Everyday")
 def plan(
     ref: str = typer.Option(None, help="Commit to verify (default: HEAD)"),
     base: str = typer.Option(None, help="Verify the range base..HEAD instead of one commit"),
@@ -464,7 +481,7 @@ def plan(
             ui.console.print(f"      [red]{ui.CROSS}[/] [dim strike]{v.scenario.name}[/] [red dim]{v.reason[:70]}[/]")
 
 
-@app.command()
+@app.command(rich_help_panel="Getting started")
 def run(
     ref: str = typer.Option(None, help="Commit to verify (default: HEAD)"),
     base: str = typer.Option(None, help="Verify the range base..HEAD instead of one commit"),
@@ -537,7 +554,7 @@ def _run_and_finish(params: PipelineParams, config: Config, repo: Path, as_json:
     raise typer.Exit(code=0 if outcome.risk_level == "LOW" else 1)
 
 
-@app.command()
+@app.command(rich_help_panel="Getting started")
 def check(
     path: list[str] = typer.Option(None, "--path", help="Only verify these files/folders (repeatable)"),
     max_scenarios: int = typer.Option(8, help="Cap on scenarios executed per run"),
@@ -635,7 +652,7 @@ def _working_tree_fingerprint(repo: Path, paths: list[str] | None = None) -> tup
     return h.hexdigest(), has_changes
 
 
-@app.command()
+@app.command(rich_help_panel="Everyday")
 def watch(
     intent: str = typer.Option(None, help="What the current work is trying to do (else .verdict/INTENT.md is read, live)"),
     path: list[str] = typer.Option(None, "--path", help="Only watch and verify these files/folders (repeatable)"),
@@ -718,7 +735,7 @@ def watch(
 
 
 config_app = typer.Typer(add_completion=False, help="Read or change verdict settings for this repo.")
-app.add_typer(config_app, name="config")
+app.add_typer(config_app, name="config", rich_help_panel="Admin, server & CI")
 
 _CONFIG_KEYS = ("model", "ollama_url", "provider", "api_key", "base_url", "database_url")
 
@@ -756,7 +773,7 @@ def config_set(key: str, value: str):
         ui.console.print(f"      [dim]set your key:[/] [cyan]verdict config set api_key <key>[/] [dim](or {llm.API_KEY_ENV} env var)[/]")
 
 
-@app.command()
+@app.command(rich_help_panel="Admin, server & CI")
 def serve(
     host: str = typer.Option("127.0.0.1", help="Bind address (0.0.0.0 inside docker-compose)"),
     port: int = typer.Option(8400, help="Port for the API"),
@@ -778,7 +795,7 @@ def serve(
     uvicorn.run("verdict.server.api:app", host=host, port=port, log_level="info")
 
 
-@app.command()
+@app.command(rich_help_panel="Admin, server & CI")
 def worker(
     concurrency: int = typer.Option(
         None, help="Concurrent jobs = concurrent sandbox containers "
@@ -801,7 +818,7 @@ def worker(
 
 
 profile_app = typer.Typer(add_completion=False, help="Named provider profiles: set up once, switch by name forever.")
-app.add_typer(profile_app, name="profile")
+app.add_typer(profile_app, name="profile", rich_help_panel="Admin, server & CI")
 
 _PROFILE_FIELDS = ("provider", "model", "api_key", "base_url", "ollama_url")
 
@@ -846,7 +863,7 @@ def profile_delete(name: str):
     ui.stage_ok("profile", f"deleted '{name}'")
 
 
-@app.command()
+@app.command(rich_help_panel="Everyday")
 def use(name: str = typer.Argument(..., help="Profile to switch to (see: verdict profile list)")):
     """Switch provider/model/key in one word - no secrets typed, ever."""
     config = load_config()
@@ -863,7 +880,7 @@ def use(name: str = typer.Argument(..., help="Profile to switch to (see: verdict
 
 
 scenario_app = typer.Typer(add_completion=False, help="Author scenarios without ever opening a YAML file.")
-app.add_typer(scenario_app, name="scenario")
+app.add_typer(scenario_app, name="scenario", rich_help_panel="Everyday")
 
 _SCENARIOS_FILE = Path(".verdict") / "scenarios" / "scenarios.yaml"
 
@@ -912,7 +929,7 @@ def scenario_list():
         ui.scenario_line(s.name, s.description)
 
 
-@app.command("install-hook")
+@app.command("install-hook", rich_help_panel="Admin, server & CI")
 def install_hook():
     """Install the git pre-push hook: every push is verified before it leaves this machine."""
     try:
@@ -925,7 +942,7 @@ def install_hook():
     ui.console.print("      [dim]non-LOW verdicts block the push (bypass: git push --no-verify)[/]")
 
 
-@app.command("uninstall-hook")
+@app.command("uninstall-hook", rich_help_panel="Admin, server & CI")
 def uninstall_hook():
     """Remove the verdict pre-push hook (refuses to touch hooks it didn't install)."""
     try:
@@ -984,7 +1001,7 @@ def _list_records(limit: int | None = None) -> list[dict]:
     return list_runs(limit=limit)
 
 
-@app.command()
+@app.command(rich_help_panel="Everyday")
 def runs(limit: int = typer.Option(15, help="How many recent runs to show")):
     """Browse past verdicts as a table - the history without touching JSON."""
     records = _list_records(limit=limit)
@@ -995,7 +1012,7 @@ def runs(limit: int = typer.Option(15, help="How many recent runs to show")):
     ui.console.print("  [dim]details:[/] [cyan]verdict logs <run-id>[/]   [dim]shareable page:[/] [cyan]verdict report <run-id>[/]   [dim]('last' works as an id)[/]")
 
 
-@app.command()
+@app.command(rich_help_panel="Everyday")
 def report(
     run_id: str = typer.Argument("last", help="Run to export ('last' = newest)"),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the report in your browser"),
@@ -1012,7 +1029,7 @@ def report(
         webbrowser.open(path.as_uri())
 
 
-@app.command()
+@app.command(rich_help_panel="Everyday")
 def status(run_id: str = typer.Argument("last", help="Run to check ('last' = newest)")):
     """One-line state of a run - queued/running in server mode, else its verdict."""
     record = _load_record(_resolve_run_id(run_id))
@@ -1029,7 +1046,7 @@ def status(run_id: str = typer.Argument("last", help="Run to check ('last' = new
     ui.stage_ok("status", f"{record['run_id']}  {detail}")
 
 
-@app.command()
+@app.command(rich_help_panel="Admin, server & CI")
 def override(
     run_id: str = typer.Argument(..., help="Run to override"),
     reason: str = typer.Option(..., "--reason", help="Why this verdict is being overridden (required, logged)"),
@@ -1085,7 +1102,7 @@ def _actor_name() -> str:
 
 
 db_app = typer.Typer(add_completion=False, help="Phase 2 data layer: Postgres setup and migration.")
-app.add_typer(db_app, name="db")
+app.add_typer(db_app, name="db", rich_help_panel="Admin, server & CI")
 
 
 @db_app.command("init")
@@ -1140,7 +1157,7 @@ def db_stats():
         ui.console.print(f"      [dim]override rate:[/] {rate['override_rate']:.1%}")
 
 
-@app.command()
+@app.command(rich_help_panel="Everyday")
 def logs(run_id: str = typer.Argument("last", help="Run to inspect ('last' = newest)")):
     """Full evidence for a run: prompt, test code, sandbox output - the audit trail."""
     record = _load_record(_resolve_run_id(run_id))

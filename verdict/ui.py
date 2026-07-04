@@ -78,6 +78,23 @@ def banner(mode: str, model: str, provider: str = "ollama") -> None:
     console.print(f"  [dim]model[/] [cyan]{model}[/] {where}  [dim]mode[/] [cyan]{mode}[/]\n")
 
 
+def first_run_banner() -> None:
+    """Shown instead of shell_banner() when this repo has never run `init` -
+    a fresh Config() defaults to ollama/qwen2.5-coder:7b, so checking
+    liveness before setup would just show a scary, misleading 'down' for a
+    provider the user hasn't chosen yet. Point at the one real next step."""
+    console.print(f"[bold cyan]{WORDMARK}[/]")
+    console.print("  [dim italic]proof, not vibes - the neutral referee for AI-written code[/]\n")
+    console.print(
+        "  Looks like this is your first time here. Verdict proves a code change\n"
+        "  does what it claims - it needs an LLM (free & local via Ollama, or your\n"
+        "  own cloud API key) and Docker to run generated tests in.\n"
+    )
+    console.print("  [bold cyan]init[/]        [dim]one-time setup - pick local or cloud right here[/]")
+    console.print("  [dim]e.g.[/] [cyan]init --provider groq --model llama-3.3-70b-versatile --api-key <key>[/]\n")
+    console.print("  [dim]type[/] [cyan]help[/] [dim]to see everything else,[/] [cyan]exit[/] [dim]to leave[/]\n")
+
+
 def shell_banner(model: str, provider: str, llm_ok: bool, docker_ok: bool) -> None:
     console.print(f"[bold cyan]{WORDMARK}[/]")
     console.print("  [dim italic]proof, not vibes - the neutral referee for AI-written code[/]\n")
@@ -88,37 +105,52 @@ def shell_banner(model: str, provider: str, llm_ok: bool, docker_ok: bool) -> No
     console.print("  [dim]type[/] [cyan]help[/] [dim]for commands,[/] [cyan]exit[/] [dim]to leave[/]\n")
 
 
-def shell_help() -> None:
+def _command_table(rows: list[tuple[str, str]]) -> Table:
     table = Table.grid(padding=(0, 3))
     table.add_column(style="cyan", justify="left")
     table.add_column(style="dim")
-    table.add_row("check", "verify the obvious thing - no flags (uncommitted changes, else last commit)")
-    table.add_row("run [options]", "verify a change (--ref, --base, --intent, --scenarios, --hybrid, --force-regenerate)")
-    table.add_row("watch [options]", "live mode: verify automatically when the working tree settles")
-    table.add_row("plan [options]", "dry-run: show scenarios without executing (--manual writes a template)")
-    table.add_row("scenario add", "author a scenario interactively - highest-signal input, no YAML to learn")
-    table.add_row("scenario list", "show saved scenarios for this repo")
-    table.add_row("use <profile>", "switch provider by name, no secrets typed (see: profile save/list)")
-    table.add_row("profile save <name>", "snapshot the current provider/model/key under a name")
-    table.add_row("profile list", "show saved provider profiles")
-    table.add_row("profile delete <name>", "remove a saved provider profile")
-    table.add_row("runs", "browse past verdicts as a table")
-    table.add_row("report [run-id]", "export a run as a shareable HTML page ('last' = newest)")
-    table.add_row("logs [run-id]", "full evidence for a past run ('last' = newest)")
-    table.add_row("status [run-id]", "one-line state of a run - queued/running in server mode, else its verdict")
-    table.add_row("override <run-id>", "record a human override of a verdict (--reason required)")
-    table.add_row("health", "liveness check: config, LLM provider, Docker, and (if configured) Postgres/Redis/queue")
-    table.add_row("model", "pick a provider + model interactively - API key shown in plain text so paste works")
-    table.add_row("config get/set", "settings: model, provider (ollama/openrouter/groq/gemini/...), api_key")
-    table.add_row("db init/migrate-files/stats", "Phase 2 data layer: Postgres schema, file-store backfill, stats")
-    table.add_row("serve", "launch the API gateway (Phase 3 server mode)")
-    table.add_row("worker", "launch a queue worker that executes runs the API enqueues")
-    table.add_row("install-hook", "pre-push gate: verify every push before it leaves this machine")
-    table.add_row("uninstall-hook", "remove the verdict pre-push hook")
-    table.add_row("init [options]", "first-time setup for this repo")
-    table.add_row("clear", "clear the screen")
-    table.add_row("exit / quit", "leave the verdict shell")
-    console.print(table)
+    for name, detail in rows:
+        table.add_row(name, detail)
+    return table
+
+
+def shell_help() -> None:
+    console.print("[bold]Getting started[/]")
+    console.print(_command_table([
+        ("init [options]", "first-time setup for this repo"),
+        ("model", "pick a provider + model interactively - API key shown in plain text so paste works"),
+        ("health", "liveness check: config, LLM provider, Docker, and (if configured) Postgres/Redis/queue"),
+        ("run [options]", "verify a change (--ref, --base, --intent, --scenarios, --hybrid, --force-regenerate)"),
+        ("check", "verify the obvious thing - no flags (uncommitted changes, else last commit)"),
+    ]))
+    console.print("\n[bold]Everyday[/]")
+    console.print(_command_table([
+        ("plan [options]", "dry-run: show scenarios without executing (--manual writes a template)"),
+        ("watch [options]", "live mode: verify automatically when the working tree settles"),
+        ("use <profile>", "switch provider by name, no secrets typed (see: profile save/list)"),
+        ("runs", "browse past verdicts as a table"),
+        ("report [run-id]", "export a run as a shareable HTML page ('last' = newest)"),
+        ("logs [run-id]", "full evidence for a past run ('last' = newest)"),
+        ("status [run-id]", "one-line state of a run - queued/running in server mode, else its verdict"),
+        ("scenario add", "author a scenario interactively - highest-signal input, no YAML to learn"),
+        ("scenario list", "show saved scenarios for this repo"),
+    ]))
+    console.print("\n[bold]Admin, server & CI[/]")
+    console.print(_command_table([
+        ("config get/set", "settings: model, provider (ollama/openrouter/groq/gemini/...), api_key"),
+        ("profile save/list/delete", "manage named provider profiles (see: use <profile>)"),
+        ("override <run-id>", "record a human override of a verdict (--reason required)"),
+        ("db init/migrate-files/stats", "Phase 2 data layer: Postgres schema, file-store backfill, stats"),
+        ("serve", "launch the API gateway (Phase 3 server mode)"),
+        ("worker", "launch a queue worker that executes runs the API enqueues"),
+        ("install-hook", "pre-push gate: verify every push before it leaves this machine"),
+        ("uninstall-hook", "remove the verdict pre-push hook"),
+    ]))
+    console.print("\n[bold]Shell[/]")
+    console.print(_command_table([
+        ("clear", "clear the screen"),
+        ("exit / quit", "leave the verdict shell"),
+    ]))
     console.print()
 
 
