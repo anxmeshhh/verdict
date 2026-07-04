@@ -1,14 +1,40 @@
 [project]
-name = "verdict"
+# "verdict" is already taken on PyPI by an unrelated project (an LLM-eval
+# framework) - the CLI command stays `verdict` regardless (see
+# [project.scripts] below), only the `pip install` name changes.
+name = "verdict-cli"
 version = "0.1.0"
 description = "Independent, self-hosted pre-deployment verification for AI-generated and human-written code."
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
+authors = [
+    { name = "Animesh Gupta", email = "theanimeshgupta@gmail.com" },
+]
+keywords = ["ai", "code-review", "testing", "verification", "llm", "ci-cd", "sandbox"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "typer>=0.19",
     "pyyaml>=6.0",
     "pyflakes>=3.0",
     "rich>=13.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/anxmeshhh/verdict"
+Repository = "https://github.com/anxmeshhh/verdict"
+Issues = "https://github.com/anxmeshhh/verdict/issues"
 
 [project.optional-dependencies]
 # Server mode (Phases 2-3): Postgres data layer, API gateway, queue/workers.

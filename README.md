@@ -8,6 +8,28 @@ Full original vision doc (architecture rationale, worked examples, design discus
 
 Not agentic, by design: Verdict is a **deterministic pipeline with exactly two narrow, bounded LLM steps** (scenario generation, then turning each scenario into runnable test code). Every other stage — intent extraction, validation, sandbox execution, risk scoring, reporting — is pure deterministic logic, and neither LLM step is trusted blindly (see [Where the LLM touches this](#where-the-llm-touches-this-and-where-it-doesnt) below). Autonomous agent loops are unpredictable and hard to audit, a bad fit for a tool whose entire value is trustworthiness.
 
+## Install
+
+Needs Python 3.10+, [Docker](https://docs.docker.com/get-docker/) running (sandbox execution), and Git.
+
+```
+pip install git+https://github.com/anxmeshhh/verdict.git
+```
+
+(Not yet published to PyPI as `verdict-cli` — this repo-based install works today; a one-line `pip install verdict-cli` is planned.)
+
+Then pick an LLM backend — either works, switch anytime with `verdict use`:
+
+- **Local & free**: install [Ollama](https://ollama.com), `ollama pull qwen2.5-coder:7b`, and Verdict finds it automatically. Diffs never leave your machine.
+- **Cloud, faster**: any OpenAI-compatible provider works, e.g. `verdict init --provider groq --model llama-3.3-70b-versatile --api-key <key>` (or `openrouter`/`gemini`/`openai`/`custom`).
+
+```
+verdict init      # one-time setup — asks local vs. cloud if you run it bare
+verdict check     # verify your first change
+```
+
+Want a team setup instead of the solo CLI? See [Server mode](#server-mode-phases-2-3) and [GitHub PRs](#github-prs) below.
+
 ## The workflow
 
 ```
