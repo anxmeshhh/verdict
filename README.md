@@ -18,14 +18,16 @@ Not agentic, by design: Verdict is a **deterministic pipeline with exactly two n
 │         ▼                                                             │
 │  verdict init                                                         │
 │         │                                                             │
-│         ├── run bare ────────────► silently defaults to local Ollama  │
+│         ├── run bare ────────────► asks: local Ollama or cloud?       │
+│         │                            (enter = local; cloud = pick      │
+│         │                            provider, paste key, pick from   │
+│         │                            the real model list it fetches)  │
 │         │                                                              │
 │         └── already know what you want? ─► verdict init --provider X  │
 │                                              --model Y --api-key Z     │
 │         │                                                              │
-│         ▼ (want to pick/switch interactively instead?)                │
-│  verdict model  ──────►  interactive: pick provider, paste key,       │
-│                          pick from the real model list it fetches     │
+│         ▼ (want to switch it later instead?)                          │
+│  verdict model  ──────►  same interactive picker, any time after init │
 │         │                                                             │
 │         ▼                                                             │
 │  verdict install-hook  ──────►  every future push auto-checks         │
@@ -69,12 +71,8 @@ Not agentic, by design: Verdict is a **deterministic pipeline with exactly two n
 │      │            "your code looks risky"                             │
 │      │                                                                 │
 │      └──── exit 2 (couldn't verify: bad ref, provider down) ──► push   │
-│                   BLOCKED — "the checker broke," not your code         │
-│                   (note: today the hook prints the same generic        │
-│                   "verification did not come back LOW" message for     │
-│                   both exit 1 and exit 2 — the distinction exists       │
-│                   under the hood but isn't surfaced in the hook's       │
-│                   own wording yet)                                     │
+│                   BLOCKED — "could not verify this push (a checker     │
+│                   problem, not necessarily your code)"                 │
 │                       │                                                │
 │                       ├── fix it and try again, or                    │
 │                       └── git push --no-verify (visible, deliberate    │
@@ -93,8 +91,8 @@ The whole surface a new user needs for the first few weeks — `verdict check` d
 
 | Command | What it does |
 |---|---|
-| `verdict init` | First-time setup. Bare = defaults to local Ollama (private, free). |
-| `verdict model` | Interactive picker if you want a cloud provider instead — pick provider, paste key, pick from the real model list. |
+| `verdict init` | First-time setup. Bare = asks local Ollama (private, free) or cloud; already know what you want? `--provider`/`--model`/`--api-key` skip the prompt. |
+| `verdict model` | Same interactive picker, any time after `init` — switch provider, paste key, pick from the real model list. |
 | `verdict install-hook` | Makes every future `git push` auto-verify itself. Optional but recommended. |
 
 **The daily loop**

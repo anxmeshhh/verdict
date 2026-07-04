@@ -54,12 +54,22 @@ while read local_ref local_sha remote_ref remote_sha; do
   [ "$base" = "$local_sha" ] && continue   # nothing new to push
 
   echo "verdict: verifying $base..$local_sha before push"
-  verdict run --base "$base" --ref "$local_sha" || {{
+  verdict run --base "$base" --ref "$local_sha"
+  status=$?
+  if [ "$status" -ne 0 ]; then
     echo ""
-    echo "verdict: verification did not come back LOW - push blocked."
-    echo "verdict: inspect with 'verdict logs <run-id>', fix, or push with --no-verify to bypass."
+    if [ "$status" -eq 2 ]; then
+      # Exit 2: the CHECKER couldn't do its job (bad ref, provider down) -
+      # distinct from the code actually looking risky, so say so plainly
+      # rather than reusing the same "did not come back LOW" wording.
+      echo "verdict: could not verify this push (a checker problem, not necessarily your code) - push blocked."
+      echo "verdict: inspect with 'verdict logs <run-id>', or push with --no-verify to bypass."
+    else
+      echo "verdict: verification did not come back LOW - push blocked."
+      echo "verdict: inspect with 'verdict logs <run-id>', fix, or push with --no-verify to bypass."
+    fi
     exit 1
-  }}
+  fi
 done
 
 exit 0

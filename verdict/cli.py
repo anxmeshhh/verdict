@@ -182,6 +182,30 @@ def init(
       verdict init --provider groq --model llama-3.3-70b-versatile --api-key <key>
     """
     existing = load_config()
+
+    # A genuinely bare `verdict init` on a never-configured repo used to
+    # silently default to Ollama with no prompt at all - ask once instead,
+    # so the choice is explicit rather than a guess the user has to notice
+    # and undo later. Flag-based invocations (--provider ...) are untouched.
+    if provider is None and not is_initialized():
+        cloud_providers = [p for p in llm.PROVIDERS if p != "ollama"]
+        choice = ui.console.input(
+            "  [bold cyan]local Ollama or a cloud provider?[/] "
+            "[dim](enter = local, private & free)[/] > "
+        ).strip().lower()
+        if choice in ("cloud", "c"):
+            ui.console.print(f"    [dim]providers:[/] {', '.join(cloud_providers)}")
+            provider = ui.console.input("  [bold cyan]provider[/] > ").strip().lower()
+            if provider not in cloud_providers:
+                _fail("config", f"unknown provider '{provider}' (valid: {', '.join(cloud_providers)})")
+            api_key = ui.console.input(
+                f"  [bold cyan]{provider} API key[/] [dim](shown in plain text so paste works)[/] > "
+            ).strip()
+            if not api_key:
+                _fail("config", f"{provider} needs an API key")
+            if provider == "custom" and not base_url:
+                base_url = ui.console.input("  [bold cyan]endpoint URL[/] > ").strip()
+
     if provider and provider not in llm.PROVIDERS:
         _fail("config", f"unknown provider '{provider}' (valid: {', '.join(llm.PROVIDERS)})")
     resolved_provider = provider or existing.provider
@@ -189,8 +213,17 @@ def init(
 
     switching_to_cloud = provider and provider != "ollama" and provider != existing.provider
     if switching_to_cloud and model is None:
-        hint = MODEL_HINTS.get(resolved_provider, "")
-        _fail("config", f"provider '{resolved_provider}' needs --model ({hint})")
+        # Fetch the real, live model list for this key rather than hard-failing -
+        # same never-hardcoded-never-guessed picker `verdict model` already uses.
+        probe_config = Config(provider=resolved_provider, api_key=api_key or existing.api_key, base_url=base_url or existing.base_url)
+        with ui.working(f"fetching {resolved_provider} model list..."):
+            models, err = _list_models(probe_config)
+        if models:
+            resolved_model = _pick_from_list(models, "")
+        else:
+            hint = MODEL_HINTS.get(resolved_provider, "")
+            detail = f" - couldn't fetch the model list ({err})" if err else ""
+            _fail("config", f"provider '{resolved_provider}' needs --model ({hint}){detail}")
 
     config = Config(
         model=resolved_model,
