@@ -6,7 +6,7 @@ Verdict reads a code diff plus its stated intent, and proves — through generat
 
 Full original vision doc (architecture rationale, worked examples, design discussion): [`Verifier_Project_Direction.docx`](./Verifier_Project_Direction.docx). This README tracks current, living status — the doc predates the project's rename from "Verifier" to "Verdict" and won't reflect progress made after it was written.
 
-Not agentic, by design: Verdict is a **deterministic pipeline with exactly one bounded LLM step** (scenario generation). Every other stage — sandbox execution, risk scoring, reporting — is pure deterministic logic. Autonomous agent loops are unpredictable and hard to audit, a bad fit for a tool whose entire value is trustworthiness.
+Not agentic, by design: Verdict is a **deterministic pipeline with exactly two narrow, bounded LLM steps** (scenario generation, then turning each scenario into runnable test code). Every other stage — intent extraction, validation, sandbox execution, risk scoring, reporting — is pure deterministic logic, and neither LLM step is trusted blindly (see [Where the LLM touches this](#where-the-llm-touches-this-and-where-it-doesnt) below). Autonomous agent loops are unpredictable and hard to audit, a bad fit for a tool whose entire value is trustworthiness.
 
 ## Status
 
@@ -69,6 +69,27 @@ Phase 1 is already a real, usable tool even if the project stopped there. Phase 
 | 6 | Risk Scorer | Sandbox results | Risk level per file (LOW/MEDIUM/HIGH) |
 | 7 | Reporter | Risk scores | Formatted output: terminal/GitHub/JSON |
 | 8 | CLI | User command | Full staged, live pipeline output |
+
+## Where the LLM touches this (and where it doesn't)
+
+The engine is deterministic logic, not the model. Grepping the whole codebase for LLM call sites turns up exactly two files that ever talk to a model — `verdict/generator.py` (scenario generation) and `verdict/testgen.py` (turning a scenario into executable test code). Everything else, including everything added in Phases 2-5, is plain code:
+
+| Module | Touches the LLM? |
+|---|---|
+| Intent extraction (diff parsing, vagueness check) | No — pure logic |
+| **Scenario generation** | **Yes** — the model proposes what's worth testing |
+| Scenario validation (traceability, hallucination guards) | No — pure logic, actively distrusts the LLM's output |
+| **Testgen** (scenario → executable test code) | **Yes** — the model writes the check |
+| Sandbox execution (Docker) | No — pure orchestration |
+| Risk scoring | No — deterministic pass/fail/coverage math |
+| Reporter, CLI, data layer, health checks, API gateway, queue, GitHub integration | No — all pure logic |
+
+Neither LLM step is trusted blindly — a proposal, not a verdict:
+- The **validator** independently checks every LLM-proposed scenario against the actual diff lines before it's allowed to run at all.
+- Several **static hallucination guards** (dead-function detection, broken-monkeypatch detection, unsupported-behavior-claim checks for type-enforcement/logging/thread-safety/format-validation claims) catch specific patterns where the model asserts something the code doesn't actually do.
+- The **confirm-FAILED pass** independently regenerates and re-runs any failing test before trusting the failure, so a flaky generated test can't masquerade as a real bug.
+
+This is the whole "not agentic" pitch: the LLM never decides what a verdict *is* — it only feeds two well-checked inputs into a pipeline a human could audit line-by-line without ever needing to trust the model's judgment.
 
 ## Tech stack
 
