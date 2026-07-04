@@ -170,6 +170,13 @@ bug ever surfaces, same as everything else in this file.
 - [ ] **[P1]** `plan --manual` writes an editable YAML template
 - [ ] **[P0]** Running with unedited `example_` placeholder scenarios → refused, not silently accepted
 - [ ] **[P1]** `load_scenarios` accepts both YAML and JSON
+- [x] **[P1]** **`scenario add` fixes (2026-07-04, found via a real `scenario add` + `run` test against the demo repo):**
+  - Interactive name validation now happens the moment the name is typed (`validate_scenario_name`, shared with `append_scenario`'s own check) - an invalid name re-prompts immediately instead of accepting it, asking for the description too, then rejecting both.
+  - `append_scenario` no longer writes a placeholder `intent: ''` key when no real intent is available - the key is omitted entirely rather than defaulting to an empty/stale value (caught because a real file had leaked `intent: tmp` - a stale value from earlier testing, not live code, but the empty-string default was the same class of problem and got fixed too).
+
+## 3c. Testgen prompt hardening (2026-07-04)
+
+- [x] **[P0]** **Dynamic-discovery argument-order bug, found via a real `run` against the demo repo's login/rate-limiter code.** When a generated test can't import the target function directly, its LLM-written fallback used to scan every `.py` file, match a callable by name (`login`/`authenticate`/`auth`/`sign_in`) and by `len(params) >= 2` alone, then call it *positionally* - producing `login(username, wrong_password, ip)` against the real `login(username, ip, password)`. This run still happened to land on the correct HIGH/FAILED verdict, but for the wrong reason (it exercised "same IP six times", not the scenario's actual "same account across different IPs"). The same mistake could just as easily produce a false PASS with different argument values - a live correctness risk, not cosmetic. Fixed at the prompt level (`testgen.py::PROMPT_TEMPLATE`): the model is now told to prefer a direct import of the exact function the diff names (almost always possible, since the diff headers show the file), and if it must fall back to scanning, to use `inspect.signature()` to match parameter *names* to the scenario's own wording and call with keyword arguments - never assume order from parameter count.
 
 ## 4. Scenario Validator
 

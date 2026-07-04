@@ -872,10 +872,14 @@ def scenario_add(
     """Add a scenario interactively - hand-authored scenarios are the
     highest-signal input in the system; this makes them a prompt, not a
     file format to learn."""
-    from verdict.authoring import append_scenario
+    from verdict.authoring import append_scenario, validate_scenario_name
 
     if name is None:
-        name = ui.console.input("  [bold cyan]scenario name[/] [dim](short_snake_case, e.g. limit_is_per_account)[/] > ").strip()
+        while True:
+            name = ui.console.input("  [bold cyan]scenario name[/] [dim](short_snake_case, e.g. limit_is_per_account)[/] > ").strip()
+            if (reason := validate_scenario_name(name)) is None:
+                break
+            ui.stage_fail("scenario", reason)
     if description is None:
         description = ui.console.input("  [bold cyan]what must be true?[/] [dim](one sentence, name the functions/values involved)[/] > ").strip()
     target = Path.cwd() / _SCENARIOS_FILE

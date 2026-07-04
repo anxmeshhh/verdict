@@ -32,6 +32,18 @@ class AuthoringError(Exception):
     pass
 
 
+def validate_scenario_name(name: str) -> str | None:
+    """None if `name` is a valid short_snake_case scenario name, else the
+    reason it isn't - shared so the interactive `scenario add` prompt can
+    validate the name the moment it's typed, before asking for anything else."""
+    name = name.strip()
+    if not name:
+        return "a scenario needs a name"
+    if not all(c.isalnum() or c == "_" for c in name):
+        return f"scenario name '{name}' must be short_snake_case (letters, digits, underscores)"
+    return None
+
+
 def write_template(path: Path, intent: str = "") -> Path:
     if path.exists():
         raise AuthoringError(f"{path} already exists - not overwriting your scenarios")
@@ -51,10 +63,10 @@ def append_scenario(path: Path, name: str, description: str, intent: str = "") -
     nobody hand-edits this file."""
     name = name.strip()
     description = description.strip()
-    if not name or not description:
-        raise AuthoringError("a scenario needs both a name and a description")
-    if not all(c.isalnum() or c == "_" for c in name):
-        raise AuthoringError(f"scenario name '{name}' must be short_snake_case (letters, digits, underscores)")
+    if (reason := validate_scenario_name(name)) is not None:
+        raise AuthoringError(reason)
+    if not description:
+        raise AuthoringError("a scenario needs a description")
 
     if path.exists():
         try:
@@ -64,7 +76,12 @@ def append_scenario(path: Path, name: str, description: str, intent: str = "") -
         if not isinstance(data, dict):
             raise AuthoringError(f"{path.name} is not a scenario file")
     else:
-        data = {"intent": intent.replace('"', "'").splitlines()[0] if intent else ""}
+        # No placeholder value written when there's nothing real to put here -
+        # an empty/stale intent line is exactly the kind of vague-placeholder
+        # confusion the tool itself flags elsewhere (check_vagueness).
+        data = {}
+        if intent:
+            data["intent"] = intent.replace('"', "'").splitlines()[0]
     scenarios = data.setdefault("scenarios", [])
     if not isinstance(scenarios, list):
         raise AuthoringError(f"{path.name} has a non-list 'scenarios' key")

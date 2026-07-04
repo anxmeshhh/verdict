@@ -42,6 +42,19 @@ directory). Rules:
 - Exit code 0 means the scenario HOLDS. Any exception or sys.exit(1) means it FAILS.
 - Print one line explaining what was checked and what was found.
 - Import the repo's own modules directly when needed (the repo root is on sys.path).
+  Prefer a direct `from module import thing` naming the exact function/class shown
+  in the diff - the diff headers already tell you which file changed, so a direct
+  import is almost always possible and removes any ambiguity about which callable
+  you mean. Only fall back to scanning the repository for a matching callable by
+  name if a direct import is genuinely not possible.
+- If you do locate a callable dynamically (by name-matching instead of a direct
+  import), NEVER assume its argument order from the parameter count alone. Call
+  `inspect.signature(obj).parameters` to get the actual parameter NAMES, match
+  each one to what the scenario is about (e.g. a parameter named `ip` vs `password`
+  vs `username`), and pass arguments as keywords matched by name
+  (`func(username=..., ip=..., password=...)`), not positionally by guessed order.
+  A positional call to a guessed function can silently test the wrong thing (e.g.
+  swap `ip` and `password`) while still producing a confident-looking exit code.
 - The sandbox has NO network and NO live services: no Ollama, no databases,
   no HTTP servers. Never call anything that needs one. Verify behavior by
   importing modules and calling functions directly, monkeypatching any
