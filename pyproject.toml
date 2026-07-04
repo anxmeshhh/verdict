@@ -26,6 +26,7 @@ classifiers = [
 ]
 dependencies = [
     "typer>=0.19",
+    "click>=8.0",
     "pyyaml>=6.0",
     "pyflakes>=3.0",
     "rich>=13.0",
