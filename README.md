@@ -187,6 +187,27 @@ Brings up Postgres + Redis + API (`:8400`) + worker. `POST /runs` to submit, `GE
 
 Copy [`action/example-workflow.yml`](./action/example-workflow.yml) to `.github/workflows/verdict.yml` in the repo you want checked, add a `VERDICT_API_KEY` repo secret, open a PR — the `verdict` check appears with per-scenario evidence. A webhook + Checks API path for the self-hosted server ships too ([`phase4/README.md`](./phase4/README.md)).
 
+## Honest status (2026-07-04)
+
+Not a pitch — an evidence-based read of where this actually stands, caveats included, because a tool whose whole job is delivering hard truths about code should be able to take one about itself.
+
+**Is the need real?** Yes, and it's specific, not vague. Static analysis, linting, and type-checkers already catch syntax and type errors. The gap is code that *reads* correctly but doesn't do what it claims — exactly the class of bug planted and tested against all session (a rate limiter keyed by IP instead of account: compiles fine, looks reasonable in a diff, silently wrong). Traditional tooling doesn't catch that category, and it's the category growing fastest as more code is AI-generated. An independent, self-hosted referee between "AI wrote this" and "a human approved this" is solving a real, current problem.
+
+**What our own testing actually shows:**
+- The planted bug was caught reliably, across dozens of runs, on two different LLM backends (a small local model and a much larger cloud one) — not a lucky first run, but consistent under repeated, adversarial pressure.
+- The phase-gate discipline is real, not performative: gates have numeric bars, and some failed before passing (Phase 1 failed twice before 10/10; Phase 3 initially failed on a real 87%-full disk before the health-check threshold was corrected). The team's own tool was allowed to say "not yet."
+- Every bug found this session was fixed and then independently re-verified with a real repro, not just claimed fixed — see [`TESTING.md`](./TESTING.md) Section 16 for the two most recent (a `check` false-positive on untracked-only files, and testgen conflating a rate-limited provider with a genuinely un-sound scenario — both closed same-day).
+- Every serious defect found all session lived in the deterministic scaffolding around the one LLM step, never "the AI is just unreliable, nothing to be done." That's the difference between a tool that's fundamentally trustworthy with fixable rough edges, and one that's fundamentally a coin flip.
+
+**The honest caveats:**
+- The one bounded LLM step still occasionally hallucinates or makes wrong assumptions (e.g. guessing a function's argument order instead of checking its signature — found and patched this session, see Section 3c of `TESTING.md`). Surrounding deterministic checks catch most of this, but it's an ongoing arms race, not a solved problem.
+- Everything validated so far is on a small, controlled demo repo built specifically to contain a known bug. That's the right way to validate the *mechanism* — it is not yet proof this holds up on a messy, large, polyglot production codebase. The roadmap says so itself: Phase 6 is explicitly "real external users, real precision/recall data," and it hasn't happened yet.
+- The full-stack story — multi-service sandboxes, diff chunking for huge PRs, per-service secrets — is explicitly not built (see "Recorded for later" above). Pointed at a large microservices monorepo today, expecting it to work the way it does on this two-file demo would be the wrong expectation.
+
+**How it actually helps, concretely:** in development, it moves "does this actually work" to the moment code is written rather than the moment an overloaded reviewer has five minutes for a PR — `watch` mode means a bug like the planted one gets flagged before it's even committed, when it's cheapest to fix. It also has a useful side effect: no verdict is possible without a clearly stated intent, which surfaces "I'm not actually sure what I just built" moments — a real, underrated failure mode when iterating fast with an AI assistant. In deployment, the pre-push hook and CI/PR integration block a risky change before it merges rather than after it ships, and the 3-way exit-code contract lets a CI pipeline make the correct automated call without a human in the loop for the common case — and correctly ask for one only when something's genuinely ambiguous or the checker itself is having a bad day.
+
+**Bottom line:** this is a soundly built system that has demonstrably caught a real, subtle bug, repeatedly, under adversarial testing — not just once, not just on a happy path. That's a legitimate foundation for confidence. What it hasn't earned yet is field-proven trust on messy, large-scale real-world codebases — that's not a knock on the engineering, it's the honest next step the roadmap itself names. The right confidence to have right now: *this is worth betting on*, not *this is already proven at scale*.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
