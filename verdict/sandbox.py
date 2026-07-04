@@ -12,6 +12,7 @@ Phase 1 tradeoff, explicit: the container keeps network access because
 dependency install (pip) needs it. Splitting install/run phases so the
 test itself runs with --network=none is Phase 3 hardening (Section 11).
 """
+import concurrent.futures
 import os
 import subprocess
 import tempfile
@@ -26,6 +27,13 @@ DEFAULT_IMAGE = "python:3.12-slim"
 DEFAULT_TIMEOUT = 300
 MEMORY_LIMIT = "512m"
 CPU_LIMIT = "1"
+
+# Each scenario's container is fully isolated (own name, own scratch dir, repo
+# mounted read-only) - no shared state, so running several at once is safe.
+# Bounded rather than unbounded: this multiplies against job-level concurrency
+# (Phase 3 worker pool), so an unbounded fan-out here could overwhelm a single
+# worker's Docker daemon (CPU/memory) even though correctness wouldn't suffer.
+DEFAULT_SANDBOX_CONCURRENCY = 3
 
 # Docker-outside-of-Docker (compose worker): this process runs IN a container
 # but talks to the HOST daemon, so every -v path must be a host path. Format:
@@ -196,13 +204,35 @@ def run_all(
     image: str = DEFAULT_IMAGE,
     timeout: int = DEFAULT_TIMEOUT,
     on_result=None,
+    max_workers: int = DEFAULT_SANDBOX_CONCURRENCY,
 ) -> list[SandboxResult]:
     if not check_docker():
         raise SandboxError("Docker daemon is not reachable - is Docker Desktop running?")
-    results = []
-    for test in tests:
-        result = run_test(test, repo, image=image, timeout=timeout)
-        results.append(result)
-        if on_result:
-            on_result(result)
+
+    if max_workers <= 1 or len(tests) <= 1:
+        results = []
+        for test in tests:
+            result = run_test(test, repo, image=image, timeout=timeout)
+            results.append(result)
+            if on_result:
+                on_result(result)
+        return results
+
+    # Slots preserved in scenario order for the returned list - the record's
+    # scenario order must stay deterministic (same as validate/testgen order)
+    # even though containers finish in whatever order the host schedules them.
+    # on_result still fires in completion order, so live progress reflects
+    # reality rather than waiting on the slowest scenario to show anything.
+    results: list[SandboxResult | None] = [None] * len(tests)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(max_workers, len(tests))) as pool:
+        future_to_index = {
+            pool.submit(run_test, test, repo, image=image, timeout=timeout): i
+            for i, test in enumerate(tests)
+        }
+        for future in concurrent.futures.as_completed(future_to_index):
+            i = future_to_index[future]
+            result = future.result()
+            results[i] = result
+            if on_result:
+                on_result(result)
     return results

@@ -28,7 +28,7 @@ from verdict.intent import (
     extract_from_working_tree,
 )
 from verdict.reporter import build_incomplete_record, build_record, new_run_id, save_run
-from verdict.sandbox import SandboxError, check_docker, run_all, run_test
+from verdict.sandbox import DEFAULT_SANDBOX_CONCURRENCY, SandboxError, check_docker, run_all, run_test
 from verdict.scorer import score
 from verdict.testgen import generate_test_code
 from verdict.validator import validate
@@ -45,6 +45,7 @@ class PipelineParams:
     max_scenarios: int = 8
     timeout: int = 300
     force_regenerate: bool = False
+    sandbox_concurrency: int = DEFAULT_SANDBOX_CONCURRENCY
 
     @property
     def mode(self) -> str:
@@ -346,6 +347,7 @@ def _execute(
             results = run_all(
                 tests, repo, timeout=params.timeout,
                 on_result=lambda r: events.result_line(r.scenario_name, r.status, r.duration_s),
+                max_workers=params.sandbox_concurrency,
             )
     except SandboxError as e:
         raise _Abort("sandbox", str(e))

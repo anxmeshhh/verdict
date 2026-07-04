@@ -32,6 +32,8 @@ Beyond the doc's Phase 1 scope, also shipped: interactive `verdict` shell, appen
 
 **Phase 5: PASSED (2026-07-04).** docker-compose stack (Postgres, Redis, API, worker, optional Ollama profile) + `setup.sh`/`setup.ps1`. Gate MET 9/9 ([`phase5/gate_results.json`](./phase5/gate_results.json)): a literal fresh `git clone` → `.env` → `compose up --build` → submitted run → LOW verdict through the full stack in **50.3 seconds** against the 10-minute budget.
 
+**Scenario-level concurrency (2026-07-04).** `run`/`check`/`watch` now execute up to `--sandbox-concurrency` (default 3) sandbox containers at once instead of one at a time — each scenario is fully isolated (own container, own scratch dir), so nothing shares state. The saved record's scenario order stays deterministic regardless of which container finishes first; only live progress lines reflect actual completion order. Combines with Phase 3's job-level concurrency (multiple runs at once); the two multiply against each other, so a worker's total containers = concurrent jobs × sandbox concurrency — pick `--sandbox-concurrency` with that in mind on a shared worker.
+
 Manual production-readiness checklist for everything above: [`TESTING.md`](./TESTING.md).
 
 ## Phased roadmap
@@ -52,7 +54,7 @@ Manual production-readiness checklist for everything above: [`TESTING.md`](./TES
 
 Phase 1 is already a real, usable tool even if the project stopped there. Phase 5 is the point a stranger can install and trust it. Everything past Phase 6 is additive reach.
 
-**Recorded for later (deliberately not built yet):** a `verdict.yaml` project-runner declaration (services/test-command/seed data — what full-stack repos need the sandbox to stand up), diff chunking for very large PRs, per-service sandbox secrets, and scenario-level (within-run) sandbox concurrency.
+**Recorded for later (deliberately not built yet):** a `verdict.yaml` project-runner declaration (services/test-command/seed data — what full-stack repos need the sandbox to stand up), diff chunking for very large PRs, and per-service sandbox secrets.
 
 ## Module breakdown (Phase 1 scope: Modules 1-8)
 
@@ -138,6 +140,7 @@ verdict                          # branded interactive shell
 verdict check                    # verify the obvious thing - no flags (uncommitted changes, else last commit)
 verdict run                      # verify HEAD (or --ref, --base, --intent for working tree)
 verdict run --path src/auth/     # verify only the files/folders you choose (repeatable)
+verdict run --sandbox-concurrency 5   # run more scenario containers at once (default 3, 1 = sequential)
 verdict watch                    # live mode: auto-verify when the working tree settles
 verdict scenario add             # author a scenario interactively - no YAML to learn
 verdict use groq                 # switch provider profiles by name, no secrets typed

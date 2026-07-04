@@ -27,7 +27,7 @@ from verdict import store
 from verdict.config import load_config
 from verdict.generator import CACHE_VERSION
 from verdict.reporter import new_run_id
-from verdict.sandbox import check_docker
+from verdict.sandbox import DEFAULT_SANDBOX_CONCURRENCY, check_docker
 
 API_KEY_ENV = "VERDICT_SERVER_API_KEY"
 
@@ -73,6 +73,7 @@ class RunRequest(BaseModel):
     paths: list[str] | None = None
     max_scenarios: int = 8
     timeout: int = 300
+    sandbox_concurrency: int = DEFAULT_SANDBOX_CONCURRENCY
     force_regenerate: bool = False
     force: bool = Field(default=False, description="Re-run even if this exact commit+model already has a job")
 
@@ -120,6 +121,7 @@ def submit_run(req: RunRequest):
         "ref": req.ref, "base": req.base, "intent": req.intent,
         "paths": req.paths, "max_scenarios": req.max_scenarios,
         "timeout": req.timeout, "force_regenerate": req.force_regenerate,
+        "sandbox_concurrency": req.sandbox_concurrency,
     }
     run_id = new_run_id()
     store.init_schema(url)

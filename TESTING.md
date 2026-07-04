@@ -186,6 +186,7 @@ bug ever surfaces, same as everything else in this file.
 - [ ] **[P2]** Per-scenario timeout → container force-removed (`docker rm -f`), status `timeout`
 - [ ] **[P2]** After a normal run, `docker ps -a` shows no leftover containers (`--rm` actually cleans up)
 - [ ] **[P2]** `pip install` failure inside the container doesn't block test execution (best-effort install)
+- [x] **[P1]** **Scenario-level concurrency (2026-07-04).** `run_all()` executes up to `--sandbox-concurrency` (default 3) containers at once via a bounded `ThreadPoolExecutor` — each scenario is a fully isolated container (own name, own scratch dir, repo mounted read-only), so no shared state to race on. The returned `results` list stays in original scenario order regardless of completion order (verified: a real run against the demo repo's `035175f` commit had `exceeds_limit_within_window` finish first live, but the saved record's `results` array was still `[same_user_different_ip, same_ip_different_user, exceeds_limit_within_window, window_reset_allows_login, old_attempts_pruned]` — the validate/testgen order). `on_result` fires in completion order for live progress. `max_workers<=1` or a single scenario takes the old plain-loop path unchanged (byte-identical to Phase 1 there). `--sandbox-concurrency 1` restores pure sequential behavior for anyone who wants it.
 
 ## 6. Risk Scorer
 

@@ -39,7 +39,7 @@ from verdict.reporter import (
     load_run,
     save_html,
 )
-from verdict.sandbox import check_docker
+from verdict.sandbox import DEFAULT_SANDBOX_CONCURRENCY, check_docker
 from verdict.validator import validate
 
 
@@ -477,6 +477,10 @@ def run(
         "--hybrid adds manual ones on top, so the default has headroom for both combined)"
     ),
     timeout: int = typer.Option(300, help="Per-scenario sandbox timeout (seconds)"),
+    sandbox_concurrency: int = typer.Option(
+        DEFAULT_SANDBOX_CONCURRENCY, "--sandbox-concurrency",
+        help="Run up to this many scenario containers at once (each is fully isolated); 1 = sequential",
+    ),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
     force_regenerate: bool = typer.Option(
         False, "--force-regenerate", help="Bypass the scenario-gen cache and ask the model fresh"
@@ -504,7 +508,7 @@ def run(
         ref=ref, base=base, intent=intent, paths=path,
         scenarios_file=scenarios_file, hybrid=hybrid,
         max_scenarios=max_scenarios, timeout=timeout,
-        force_regenerate=force_regenerate,
+        force_regenerate=force_regenerate, sandbox_concurrency=sandbox_concurrency,
     )
     _run_and_finish(params, config, repo, as_json)
 
@@ -538,6 +542,10 @@ def check(
     path: list[str] = typer.Option(None, "--path", help="Only verify these files/folders (repeatable)"),
     max_scenarios: int = typer.Option(8, help="Cap on scenarios executed per run"),
     timeout: int = typer.Option(300, help="Per-scenario sandbox timeout (seconds)"),
+    sandbox_concurrency: int = typer.Option(
+        DEFAULT_SANDBOX_CONCURRENCY, "--sandbox-concurrency",
+        help="Run up to this many scenario containers at once; 1 = sequential",
+    ),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
     force_regenerate: bool = typer.Option(
         False, "--force-regenerate", help="Bypass the scenario-gen cache and ask the model fresh"
@@ -579,11 +587,13 @@ def check(
             raise typer.Exit(code=2)
         ui.stage_note("check", "uncommitted changes found - verifying the working tree (intent from .verdict/INTENT.md)")
         params = PipelineParams(intent=intent_text, paths=path, max_scenarios=max_scenarios,
-                                timeout=timeout, force_regenerate=force_regenerate)
+                                timeout=timeout, force_regenerate=force_regenerate,
+                                sandbox_concurrency=sandbox_concurrency)
     else:
         ui.stage_note("check", "working tree clean - verifying the last commit (intent from its message)")
         params = PipelineParams(paths=path, max_scenarios=max_scenarios,
-                                timeout=timeout, force_regenerate=force_regenerate)
+                                timeout=timeout, force_regenerate=force_regenerate,
+                                sandbox_concurrency=sandbox_concurrency)
 
     _run_and_finish(params, config, repo, as_json)
 
@@ -629,6 +639,10 @@ def watch(
     interval: float = typer.Option(2.0, help="Poll interval (seconds)"),
     max_scenarios: int = typer.Option(3, help="Cap on scenarios per triggered run"),
     timeout: int = typer.Option(240, help="Per-scenario sandbox timeout (seconds)"),
+    sandbox_concurrency: int = typer.Option(
+        DEFAULT_SANDBOX_CONCURRENCY, "--sandbox-concurrency",
+        help="Run up to this many scenario containers at once; 1 = sequential",
+    ),
 ):
     """Live mode: watch the working tree while you (or your agent) build.
 
@@ -687,6 +701,7 @@ def watch(
                                 ref=None, base=None, intent=current_intent, path=path,
                                 scenarios_file=None, hybrid=False,
                                 max_scenarios=max_scenarios, timeout=timeout, as_json=False,
+                                sandbox_concurrency=sandbox_concurrency,
                             )
                         except typer.Exit:
                             pass  # every outcome is already recorded; the watch lives on
