@@ -16,7 +16,7 @@ Needs Python 3.10+, [Docker](https://docs.docker.com/get-docker/) running (sandb
 pip install git+https://github.com/anxmeshhh/verdict.git
 ```
 
-(Not yet published to PyPI as `verdict-cli` — this repo-based install works today; a one-line `pip install verdict-cli` is planned.)
+(Not published to PyPI — installed straight from this repo by design, so `pip install verdict-cli` won't work.)
 
 Then pick an LLM backend — either works, switch anytime with `verdict use`:
 
