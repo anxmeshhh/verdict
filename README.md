@@ -8,6 +8,83 @@ Full original vision doc (architecture rationale, worked examples, design discus
 
 Not agentic, by design: Verdict is a **deterministic pipeline with exactly two narrow, bounded LLM steps** (scenario generation, then turning each scenario into runnable test code). Every other stage — intent extraction, validation, sandbox execution, risk scoring, reporting — is pure deterministic logic, and neither LLM step is trusted blindly (see [Where the LLM touches this](#where-the-llm-touches-this-and-where-it-doesnt) below). Autonomous agent loops are unpredictable and hard to audit, a bad fit for a tool whose entire value is trustworthiness.
 
+## The workflow
+
+```
+┌─────────────────────────── ONE-TIME SETUP ────────────────────────────┐
+│                                                                        │
+│  git clone <friend's project>                                        │
+│         │                                                             │
+│         ▼                                                             │
+│  verdict init                                                         │
+│         │                                                             │
+│         ├── run bare ────────────► silently defaults to local Ollama  │
+│         │                                                              │
+│         └── already know what you want? ─► verdict init --provider X  │
+│                                              --model Y --api-key Z     │
+│         │                                                              │
+│         ▼ (want to pick/switch interactively instead?)                │
+│  verdict model  ──────►  interactive: pick provider, paste key,       │
+│                          pick from the real model list it fetches     │
+│         │                                                             │
+│         ▼                                                             │
+│  verdict install-hook  ──────►  every future push auto-checks         │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────── DAILY LOOP ─────────────────────────────────┐
+│                                                                        │
+│  Write code (with or without an AI assistant)                        │
+│         │                                                             │
+│         ▼                                                             │
+│  State intent — one line in .verdict/INTENT.md or the commit message  │
+│         │                                                             │
+│         ▼                                                             │
+│  verdict check   (no flags — auto-detects what to verify)             │
+│         │                                                             │
+│         ▼                                                             │
+│  Verdict generates real scenarios → runs them in a sandbox            │
+│         │                                                             │
+│         ├──── LOW RISK ─────────────► push with confidence            │
+│         │                                                             │
+│         └──── HIGH/MEDIUM ────► read the failing scenario + evidence  │
+│                       │                                               │
+│                       ▼                                               │
+│              fix the actual bug it found                              │
+│                       │                                               │
+│                       └──────────────► back to `verdict check`        │
+│                                                                        │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────── SAFETY NET (if they forget) ───────────────────┐
+│                                                                         │
+│  git push                                                              │
+│      │                                                                 │
+│      ▼                                                                 │
+│  pre-push hook fires: verdict run --base ... --ref ...                 │
+│      │                                                                 │
+│      ├──── exit 0 (LOW) ──────────► push goes through                  │
+│      │                                                                 │
+│      ├──── exit 1 (risky: MEDIUM/HIGH/UNVERIFIED) ──► push BLOCKED     │
+│      │            "your code looks risky"                             │
+│      │                                                                 │
+│      └──── exit 2 (couldn't verify: bad ref, provider down) ──► push   │
+│                   BLOCKED — "the checker broke," not your code         │
+│                   (note: today the hook prints the same generic        │
+│                   "verification did not come back LOW" message for     │
+│                   both exit 1 and exit 2 — the distinction exists       │
+│                   under the hood but isn't surfaced in the hook's       │
+│                   own wording yet)                                     │
+│                       │                                                │
+│                       ├── fix it and try again, or                    │
+│                       └── git push --no-verify (visible, deliberate    │
+│                           override — git's own mechanism, always       │
+│                           works this way, not something Verdict        │
+│                           controls)                                    │
+│                                                                         │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
 ## Status
 
 **Phase 0: PASSED.** 85% precision (gate was >70%) — see [`phase0/`](./phase0) for the script, dataset, and evidence. 25 real `{diff, intent}` pairs pulled from actual commit history, scenarios generated via local `qwen2.5-coder:7b`, manually judged for traceability against the real diff content.
