@@ -85,6 +85,47 @@ Not agentic, by design: Verdict is a **deterministic pipeline with exactly two n
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
+## Quick reference for new users
+
+The whole surface a new user needs for the first few weeks — `verdict check` day to day, `logs`/`report` when something's flagged, `install-hook` once so verification is never optional to remember. Everything else (server mode, Postgres, GitHub Actions, `db`/`serve`/`worker`) is for later, once you're running this as a team, not solo — see [Everyday commands](#everyday-commands) below for the full surface.
+
+**Setup (once per project)**
+
+| Command | What it does |
+|---|---|
+| `verdict init` | First-time setup. Bare = defaults to local Ollama (private, free). |
+| `verdict model` | Interactive picker if you want a cloud provider instead — pick provider, paste key, pick from the real model list. |
+| `verdict install-hook` | Makes every future `git push` auto-verify itself. Optional but recommended. |
+
+**The daily loop**
+
+| Command | What it does |
+|---|---|
+| `verdict check` | The one to actually remember. No flags — figures out what to verify on its own. |
+| `verdict watch` | Live mode — verifies automatically once the working tree goes quiet for a few seconds (not on every keystroke — waits for a natural pause so it never fires mid-edit). |
+| `verdict scenario add` | Write your own check in plain English if you want to test something specific yourself — no YAML. |
+
+**When something's flagged**
+
+| Command | What it does |
+|---|---|
+| `verdict logs last` | The full evidence — the actual generated test and what happened when it ran. |
+| `verdict report last` | A clean, shareable HTML page of the same thing, for a teammate or a PR. |
+
+**Looking back**
+
+| Command | What it does |
+|---|---|
+| `verdict runs` | History of everything you've checked, as a table. |
+| `verdict health` | "Is everything actually working right now" — provider, Docker, disk. |
+
+**The safety net**
+
+| Command | What it does |
+|---|---|
+| `verdict use <name>` | Switch between saved provider setups by name — never retype a key. |
+| `git push --no-verify` | Deliberately skip the check for this one push (git's own mechanism, always visible in your history). |
+
 ## Status
 
 **Phase 0: PASSED.** 85% precision (gate was >70%) — see [`phase0/`](./phase0) for the script, dataset, and evidence. 25 real `{diff, intent}` pairs pulled from actual commit history, scenarios generated via local `qwen2.5-coder:7b`, manually judged for traceability against the real diff content.
@@ -232,6 +273,8 @@ use it whenever you're deliberately testing model reliability (e.g. hunting an i
 hallucination), since a cache hit would otherwise hide it.
 
 ## Everyday commands
+
+The full command surface with flags. New here? [Quick reference for new users](#quick-reference-for-new-users) above covers everything you need for the first few weeks.
 
 ```
 verdict                          # branded interactive shell
