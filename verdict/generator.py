@@ -86,6 +86,11 @@ class GenerationError(Exception):
     message: str
     prompt: str = ""
     raw_response: str = ""
+    # True when this came from the LLM PROVIDER failing (rate-limited, down,
+    # network error) rather than the model producing bad output - the two
+    # need different verdicts: a provider outage means the checker couldn't
+    # do its job (errored), not that the model tried and failed (UNVERIFIED).
+    provider_error: bool = False
 
     def __str__(self) -> str:
         return self.message
@@ -221,7 +226,7 @@ def generate(
         try:
             resp = llm.call(prompt, config, json_format=True)
         except llm.LLMDown as e:
-            raise GenerationError(str(e), prompt=prompt) from e
+            raise GenerationError(str(e), prompt=prompt, provider_error=True) from e
         raw = resp.text
         prompt_tokens += resp.prompt_tokens
         output_tokens += resp.output_tokens

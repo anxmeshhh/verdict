@@ -339,6 +339,17 @@ the standing regression surface on top of those gates.
 - [x] **[P0]** DooD path mapping: sandbox `-v` mounts translated container→host via `VERDICT_HOST_PATH_MAP`; per-test scratch moved out of container-local temp (which the host daemon can't see — the test file would silently vanish) into the shared data volume; both no-ops for the plain CLI
 - [x] **[P1]** `.gitattributes` pins LF on shell scripts (a Windows clone would otherwise break the Linux entrypoint); `.env.example` un-ignored (secretless template must ship); API key enforcement verified from the fresh clone (401 without header)
 
+## 16. v2 testing round (2026-07-04) - 7 tasks, 2 real bugs found and fixed
+
+- [x] **[P0]** **`verdict check` false-positive on untracked-only changes.** The dirty-check used `git status --porcelain`, which flags untracked (`??`) files, but the actual diff (`extract_from_working_tree`) uses `git diff HEAD`, which never shows untracked files - so a stray untracked file (e.g. an untracked `.gitignore`) made `check` think there was something to verify, then handed the pipeline an empty diff instead of falling back to "clean tree -> last commit". Fixed by making the dirty-check use the exact same `git diff HEAD` command that will actually produce the diff, so the two can never disagree. Verified both directions: untracked-only -> correctly falls back to last commit; a real tracked edit -> still correctly detected as dirty.
+- [x] **[P0]** **Testgen's provider-error/model-failure conflation.** `GenerationError` gained a `provider_error: bool` field, set when the failure came from `llm.LLMDown` (rate-limited/unreachable provider) rather than the model producing unsound code after retries. `pipeline.py`'s testgen loop now escalates to `errored`/exit-2 ("the LLM provider failed on every scenario") only when EVERY failed scenario was a provider error - a mixed or all-genuine-quality failure still correctly stays `unverified`/exit-1. Verified with both boundary cases via a monkeypatched `generate_test_code` (no real API calls): all-provider-error -> `errored`; single genuine failure -> `unverified`, not over-escalated.
+- [x] **[P1]** Re-verified (already fixed earlier this session): scenario-add argument-order guessing, name-validation timing, stale intent placeholder - see Section 3c and 3b.
+- [x] **[P1]** Confirmed working well: `check`'s uncommitted->last-commit priority (once the untracked-file bug is fixed), profile switching with no secret retyping, scenario add's interactive flow, the 0/1/2 exit code contract, and scenario-level concurrency (order-preserving under real load, see Section 5).
+
+Design questions raised, not bugs - recorded for later, not yet decided:
+- Should `override` work in plain file-store mode (via `audit.jsonl`) instead of requiring Postgres just to record one override?
+- Does `watch` mode's full-history-every-cycle diff scope need narrowing for larger repos? (carried over from earlier)
+
 ## Recording results
 
 Check items off directly in this file, noting the run id (`verdict runs`)

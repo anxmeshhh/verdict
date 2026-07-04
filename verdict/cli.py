@@ -563,8 +563,12 @@ def check(
     repo = Path.cwd()
     config = load_config()
 
+    # Must match exactly what extract_from_working_tree() will actually diff
+    # (git diff HEAD) - git status --porcelain also flags untracked files,
+    # which git diff HEAD never shows, so that check could see "dirty" while
+    # the real diff comes back empty and there's nothing to verify.
     dirty = subprocess.run(
-        ["git", "status", "--porcelain", "--", ".", ":(exclude).verdict"],
+        ["git", "diff", "HEAD", "--", ".", ":(exclude).verdict"],
         cwd=repo, capture_output=True, text=True, encoding="utf-8", errors="replace",
     ).stdout.strip()
 

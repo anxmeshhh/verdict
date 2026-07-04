@@ -228,7 +228,7 @@ def generate_test_code(
         try:
             resp = llm.call(retry_prompt, config)
         except llm.LLMDown as e:
-            raise GenerationError(str(e), prompt=prompt) from e
+            raise GenerationError(str(e), prompt=prompt, provider_error=True) from e
         code = _strip_fences(resp.text)
         prompt_tokens += resp.prompt_tokens
         output_tokens += resp.output_tokens

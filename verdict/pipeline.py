@@ -327,6 +327,7 @@ def _execute(
 
     # [5/6] sandbox (testgen + execution)
     tests, ungeneratable = [], []
+    provider_error_count = 0
     for s in kept:
         try:
             with events.working(f"writing check for {s.name}..."):
@@ -334,12 +335,26 @@ def _execute(
             _track(t.prompt_tokens, t.output_tokens, t.llm_duration_s)
             tests.append(t)
             events.stage_note("testgen", f"{s.name} [dim](attempt {t.attempts})[/]")
-        except GenerationError:
+        except GenerationError as e:
             ungeneratable.append(s)
             _track(0, 0, 0)
-            events.stage_warn("testgen", f"{s.name}: could not produce a sound check - skipped")
+            if e.provider_error:
+                # The PROVIDER failed (rate-limited/unreachable), not the
+                # model producing bad code - distinct from a genuine quality
+                # skip, so the log/audit trail attributes it correctly.
+                provider_error_count += 1
+                events.stage_warn("testgen", f"{s.name}: provider error, not a model failure - {e}")
+            else:
+                events.stage_warn("testgen", f"{s.name}: could not produce a sound check - skipped")
 
     if not tests:
+        if provider_error_count and provider_error_count == len(ungeneratable):
+            # Every scenario failed because the LLM PROVIDER broke (rate
+            # limit exhausted, unreachable, etc), not because the model
+            # tried and produced unsound code. That's the checker failing to
+            # do its job, not evidence the code is risky - errored/exit-2,
+            # never a confident UNVERIFIED that reads as "code needs review."
+            raise _Abort("testgen", f"the LLM provider failed on every scenario ({provider_error_count}/{len(kept)}) - could not attempt test generation")
         raise _Unverified("testgen", "no scenario produced runnable test code", generation)
 
     try:
