@@ -449,6 +449,8 @@ def health():
         if pg.ok:
             q = health_mod.check_queue(db_url)
             ui.stage_ok("queue", q.detail)
+            intel = health_mod.check_intelligence(db_url)
+            (ui.stage_ok if intel.ok else ui.stage_warn)("intelligence", intel.detail)
         else:
             exit_code = 1
     if os.environ.get(health_mod.REDIS_URL_ENV, "").strip():
@@ -1151,7 +1153,7 @@ def db_init():
         store.init_schema(url)
     except store.StoreError as e:
         _fail("db", str(e))
-    ui.stage_ok("db", "schema ready (runs, results, audit_log, overrides, jobs)")
+    ui.stage_ok("db", "schema ready (runs, results, audit_log, overrides, jobs, findings)")
 
 
 @db_app.command("migrate-files")

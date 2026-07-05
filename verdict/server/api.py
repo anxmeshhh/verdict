@@ -307,6 +307,62 @@ async def github_webhook(request: Request):
             "pr": pr["pr_number"], "head_sha": pr["head_sha"]}
 
 
+@app.get("/intelligence", dependencies=[Depends(require_api_key)])
+def intelligence():
+    """Verdict Intelligence's read-only view: risk ranking across every repo
+    that's reported a finding, then the raw finding list underneath - same
+    'a view, not a dashboard' rule as index() above. No agent here can act
+    from this page; it's exactly what's already in Postgres, rendered."""
+    from fastapi.responses import HTMLResponse
+
+    try:
+        findings = store.list_findings(database_url(), limit=100)
+    except store.StoreError as e:
+        return HTMLResponse(f"<pre>data layer unreachable: {e}</pre>", status_code=503)
+
+    ranking: dict[str, dict[str, int]] = {}
+    for f in findings:
+        repo = f.get("repo_name") or "unknown"
+        bucket = ranking.setdefault(repo, {"HIGH": 0, "MEDIUM": 0, "LOW": 0, "other": 0})
+        sev = (f.get("severity") or "").upper()
+        bucket[sev if sev in ("HIGH", "MEDIUM", "LOW") else "other"] += 1
+    ranked_repos = sorted(ranking.items(), key=lambda kv: (-kv[1]["HIGH"], -kv[1]["MEDIUM"], kv[0]))
+
+    ranking_rows = "".join(
+        f"<tr><td>{repo}</td><td class='HIGH'>{b['HIGH']}</td>"
+        f"<td class='MEDIUM'>{b['MEDIUM']}</td><td class='LOW'>{b['LOW']}</td></tr>"
+        for repo, b in ranked_repos
+    )
+
+    def _sev_class(sev: str) -> str:
+        return sev.upper() if sev.upper() in ("HIGH", "MEDIUM", "LOW") else ""
+
+    finding_rows = "".join(
+        f"<tr><td>{f.get('repo_name') or ''}</td><td>{f.get('vuln_class')}</td>"
+        f"<td>{f.get('name')}</td>"
+        f"<td class='{_sev_class(f.get('severity') or '')}'>{f.get('severity') or ''}</td>"
+        f"<td>{f.get('status')}</td>"
+        f"<td>{'recurrence of #' + str(f['correlated_with']) if f.get('correlated_with') else ''}</td>"
+        f"<td>{str(f.get('created_at') or '')[:16]}</td></tr>"
+        for f in findings
+    )
+
+    return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8"><title>Verdict Intelligence</title>
+<style>body{{font:14px ui-monospace,monospace;background:#0b0f14;color:#e5e7eb;padding:2rem}}
+table{{border-collapse:collapse;width:100%;margin-bottom:2rem}}td,th{{padding:.4rem .8rem;border-bottom:1px solid #1f2937;text-align:left}}
+.HIGH{{color:#ef4444}}.MEDIUM{{color:#eab308}}.LOW{{color:#22c55e}}
+h1{{color:#22d3ee;letter-spacing:.3em;font-size:1rem}}h2{{color:#9ca3af;font-size:.85rem;letter-spacing:.15em;text-transform:uppercase}}</style>
+</head><body>
+<h1>VERDICT INTELLIGENCE</h1>
+<p style="color:#6b7280">read-only - no agent on this page can mark anything verified; that only ever comes from a real Verdict Core run</p>
+<h2>Risk ranking</h2>
+<table><tr><th>repo</th><th>high</th><th>medium</th><th>low</th></tr>{ranking_rows or '<tr><td colspan=4>no findings yet</td></tr>'}</table>
+<h2>Findings</h2>
+<table><tr><th>repo</th><th>vuln class</th><th>name</th><th>severity</th><th>status</th><th>correlation</th><th>when</th></tr>
+{finding_rows or '<tr><td colspan=7>no findings yet</td></tr>'}</table>
+</body></html>""")
+
+
 @app.get("/", dependencies=[Depends(require_api_key)])
 def index():
     """Minimal read-only run history page - the CLI is still the only thing

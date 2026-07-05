@@ -99,15 +99,21 @@ def extract(
     return from_scenario_results(results, scenarios) + from_dependencies(repo)
 
 
-def save(findings: list[Finding], repo: Path, run_id: str) -> Path | None:
-    """Writes .verdict/findings/<run_id>.json - the local record Phase 7's
-    BigQuery vulnerability_map ingests from later. Returns None (and never
-    raises) when there's nothing to write or the write fails - saving
-    findings is not something that should ever break a run whose actual
-    verdict already completed."""
+def save(
+    findings: list[Finding], repo: Path, run_id: str, config=None, repo_name: str | None = None
+) -> Path | None:
+    """Writes .verdict/findings/<run_id>.json - stays canonical, same rule as
+    runs/audit_log elsewhere in this project. When database_url is
+    configured, also mirrors into Postgres (verdict/store.py's findings
+    table) - the queryable layer the agent layer and the UI read from.
+    Returns the local path (or None if there was nothing to write, or the
+    local write itself failed) - saving findings must never break a run
+    whose actual verdict already completed, and the Postgres mirror is
+    best-effort on top of that, never the other way around."""
     if not findings:
         return None
     directory = _findings_dir(repo)
+    path = None
     try:
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{run_id}.json"
@@ -117,6 +123,35 @@ def save(findings: list[Finding], repo: Path, run_id: str) -> Path | None:
             "findings": [asdict(f) for f in findings],
         }
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        return path
     except OSError:
-        return None
+        path = None
+
+    from verdict import store
+    from verdict.agents import correlator, triage
+
+    url = store.resolve_database_url(config)
+    if url:
+        try:
+            inserted = store.save_findings(url, run_id, repo_name or repo.name, [asdict(f) for f in findings])
+        except store.StoreError as e:
+            store._warn(f"findings: {e}")
+            inserted = []
+        # Correlator then Triage, autonomous, triggered right here, right
+        # after the write - neither is something a human has to ask for. A
+        # provider hiccup or agent failure must never affect the finding
+        # that already saved successfully, so each is wrapped defensively
+        # per-finding.
+        for row in inserted:
+            if config is not None:
+                try:
+                    result = correlator.correlate(row, config, url)
+                    if result is not None:
+                        row["correlated_with"] = result.matched_finding_id
+                except Exception:
+                    pass
+            try:
+                triage.triage(row, repo, database_url=url)
+            except Exception:
+                continue
+
+    return path

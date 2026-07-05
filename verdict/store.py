@@ -86,6 +86,22 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL
 );
+CREATE TABLE IF NOT EXISTS findings (
+    id           BIGSERIAL PRIMARY KEY,
+    run_id       TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    repo_name    TEXT,
+    vuln_class   TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    description  TEXT,
+    severity     TEXT,
+    evidence     TEXT,
+    source       TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'open',
+    created_at   TIMESTAMPTZ NOT NULL,
+    correlated_with BIGINT REFERENCES findings(id)
+);
+CREATE INDEX IF NOT EXISTS findings_vuln_class_idx ON findings(vuln_class);
+CREATE INDEX IF NOT EXISTS findings_status_idx ON findings(status);
 """
 
 
@@ -407,3 +423,99 @@ def queue_depth(database_url: str) -> dict:
         n for s, n in counts.items() if s == "queued" or s.startswith("running") or s == "waiting_on_llm"
     )
     return counts
+
+
+# --- Verdict Intelligence: findings + agent layer -------------------------
+# Dual-write, same rule as everywhere else in this file: the local
+# .verdict/findings/<run_id>.json written by verdict/findings.py stays
+# canonical, this is the queryable mirror the agents and the UI read from.
+
+def _row_to_finding(row) -> dict:
+    return {
+        "id": row[0],
+        "run_id": row[1],
+        "repo_name": row[2],
+        "vuln_class": row[3],
+        "name": row[4],
+        "description": row[5],
+        "severity": row[6],
+        "evidence": row[7],
+        "source": row[8],
+        "status": row[9],
+        "created_at": str(row[10]),
+        "correlated_with": row[11],
+    }
+
+
+_FINDING_COLS = (
+    "id, run_id, repo_name, vuln_class, name, description, severity, "
+    "evidence, source, status, created_at, correlated_with"
+)
+
+
+def save_findings(database_url: str, run_id: str, repo_name: str, findings: list[dict]) -> list[dict]:
+    """Returns the inserted rows (with their new ids) - the Correlator agent
+    runs right after this, per finding, and needs the id to act on."""
+    if not findings:
+        return []
+    now = datetime.now(timezone.utc).isoformat()
+    inserted = []
+    with connect(database_url) as conn:
+        for f in findings:
+            row = conn.execute(
+                f"""
+                INSERT INTO findings (run_id, repo_name, vuln_class, name, description,
+                                       severity, evidence, source, status, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'open', %s)
+                RETURNING {_FINDING_COLS}
+                """,
+                (
+                    run_id, repo_name, f["vuln_class"], f["name"], f.get("description"),
+                    f.get("severity"), f.get("evidence"), f["source"], now,
+                ),
+            ).fetchone()
+            inserted.append(_row_to_finding(row))
+    return inserted
+
+
+def list_findings(
+    database_url: str,
+    status: str | None = None,
+    vuln_class: str | None = None,
+    exclude_run_id: str | None = None,
+    limit: int | None = None,
+) -> list[dict]:
+    query = f"SELECT {_FINDING_COLS} FROM findings WHERE 1=1"
+    params: list = []
+    if status:
+        query += " AND status = %s"
+        params.append(status)
+    if vuln_class:
+        query += " AND vuln_class = %s"
+        params.append(vuln_class)
+    if exclude_run_id:
+        query += " AND run_id != %s"
+        params.append(exclude_run_id)
+    query += " ORDER BY created_at DESC"
+    if limit:
+        query += " LIMIT %s"
+        params.append(limit)
+    with connect(database_url) as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+    return [_row_to_finding(r) for r in rows]
+
+
+def set_correlation(database_url: str, finding_id: int, correlated_with_id: int) -> None:
+    """Correlator agent's one write: linking a new finding to a past one it
+    matched. Never mutates severity/status - correlation is metadata, not a
+    verdict."""
+    with connect(database_url) as conn:
+        conn.execute(
+            "UPDATE findings SET correlated_with = %s WHERE id = %s",
+            (correlated_with_id, finding_id),
+        )
+
+
+def set_finding_status(database_url: str, finding_id: int, status: str) -> None:
+    with connect(database_url) as conn:
+        conn.execute("UPDATE findings SET status = %s WHERE id = %s", (status, finding_id))

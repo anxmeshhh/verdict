@@ -405,7 +405,7 @@ def _execute(
     # whatever's left as genuinely "failed" - a flaky generated test that got
     # downgraded to "uncertain" must never produce a finding either.
     security_findings = findings.extract(results, generation.scenarios, repo)
-    findings_path = findings.save(security_findings, repo, run_id)
+    findings_path = findings.save(security_findings, repo, run_id, config=config)
     if security_findings:
         events.stage_note("findings", f"{len(security_findings)} security finding(s) recorded")
 

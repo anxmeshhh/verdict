@@ -73,6 +73,23 @@ def check_postgres(database_url: str) -> ComponentHealth:
     return ComponentHealth("postgres", ok, detail, 1.0 if ok else 0.0)
 
 
+def check_intelligence(database_url: str) -> ComponentHealth:
+    """Whether Verdict Intelligence (findings + the agent layer) is actually
+    wired up - true once Postgres is reachable, since the findings table is
+    part of the same schema init_schema() already creates. Reports open vs.
+    alerted findings so 'is this doing anything' is answerable at a glance,
+    not just 'is the table configured'."""
+    from verdict import store
+
+    try:
+        open_findings = store.list_findings(database_url, status="open")
+        alerted = store.list_findings(database_url, status="alerted")
+    except store.StoreError as e:
+        return ComponentHealth("intelligence", False, str(e), 0.0)
+    detail = f"active - {len(open_findings)} open, {len(alerted)} alerted finding(s)"
+    return ComponentHealth("intelligence", True, detail, 1.0)
+
+
 def check_queue(database_url: str) -> ComponentHealth:
     """Queue depth from the jobs table - visible backpressure, never a
     silent pile-up."""
