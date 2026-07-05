@@ -229,6 +229,38 @@ Neither LLM step is trusted blindly — a proposal, not a verdict:
 
 This is the whole "not agentic" pitch: the LLM never decides what a verdict *is* — it only feeds two well-checked inputs into a pipeline a human could audit line-by-line without ever needing to trust the model's judgment.
 
+## Verdict Intelligence — the autonomous layer (optional)
+
+Everything above is **Verdict Core** — deliberately not agentic. **Verdict Intelligence** is an optional layer on top that *is* agentic, and the split is the whole point: verification stays a deterministic, sandboxed fact, while *reasoning about* the accumulated findings is delegated to autonomous agents. Getting an agent's judgment wrong costs a bad suggestion; it can never produce a false "your code is safe."
+
+When you run `verdict check` on code with a security-shaped finding (Phase 6 — injection, auth-bypass, secret-leak, insecure-deserialization scenarios, plus deterministic OSV.dev dependency-CVE lookups), the finding is recorded to a standing, queryable map. Four narrow agents then act on it **on their own, on a background thread** (your verdict is never delayed waiting for them):
+
+| Agent | Fires when | What it does — autonomously |
+|---|---|---|
+| **Correlator** | any new finding | matches it against past findings across every repo/run — "we've seen this before" |
+| **Verification-requester** | the Correlator matches | flags the *older* finding for a real re-check (the pattern resurfaced, so its fix may not have held) |
+| **Triage** | a HIGH finding, or any recurrence | fires an alert, no human prompt — the rubric's "alert" output |
+| **Remediation-advisor** | a HIGH/critical finding | drafts a concrete, vuln-class-specific fix suggestion — *always* a suggestion, never applied by anything |
+
+**The one boundary that never moves:** no agent can mark a change verified, safe, or fixed. That fact only ever comes from a real, sandboxed Verdict Core run. The agents notice, correlate, prioritize, alert, and suggest — a human (or a fresh Core run) still decides. That's what makes the layer honestly *autonomous and multi-agent* without becoming a system that grades its own homework.
+
+**Watch it work:**
+
+```
+verdict findings            # the standing vulnerability map, as a table
+verdict agents --follow     # live feed: each agent's action as it happens
+verdict serve  →  /intelligence   # the same, as a web page
+```
+
+Enabling it is one step — it rides on the same Postgres data layer as [server mode](#server-mode-phases-2-3):
+
+```
+verdict config set database_url postgresql://user:pass@host:5432/verdict
+verdict db init
+```
+
+Without a data layer, security findings are still recorded locally per run under `.verdict/findings/`, but the standing map and the agents (correlation, alerting, suggested fixes) need Postgres — `verdict check` says so explicitly rather than doing nothing silently. Full design rationale: [`VERDICT_INTELLIGENCE.md`](./VERDICT_INTELLIGENCE.md).
+
 ## Tech stack
 
 | Layer | Technology |
@@ -308,6 +340,8 @@ verdict use groq                 # switch provider profiles by name, no secrets 
 verdict runs                     # history of past verdicts as a table
 verdict report last              # shareable self-contained HTML page for a run
 verdict logs last                # full evidence: prompt, test code, sandbox output
+verdict findings                 # the standing vulnerability map (Verdict Intelligence; needs Postgres)
+verdict agents --follow          # live feed of the autonomous agents acting
 verdict override run_x --reason "..."   # disagree with a verdict, on the record
 verdict install-hook             # pre-push gate: non-LOW verdicts block the push
 verdict health                   # honest liveness of every configured dependency
