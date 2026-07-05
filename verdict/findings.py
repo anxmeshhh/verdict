@@ -127,7 +127,7 @@ def save(
         path = None
 
     from verdict import store
-    from verdict.agents import correlator, triage
+    from verdict.agents import correlator, remediation, triage, verifier
 
     url = store.resolve_database_url(config)
     if url:
@@ -136,8 +136,8 @@ def save(
         except store.StoreError as e:
             store._warn(f"findings: {e}")
             inserted = []
-        # Correlator then Triage, autonomous, triggered right here, right
-        # after the write - neither is something a human has to ask for. A
+        # Four agents, autonomous, triggered right here, right after the
+        # write - none of this is something a human has to ask for. A
         # provider hiccup or agent failure must never affect the finding
         # that already saved successfully, so each is wrapped defensively
         # per-finding.
@@ -147,11 +147,19 @@ def save(
                     result = correlator.correlate(row, config, url)
                     if result is not None:
                         row["correlated_with"] = result.matched_finding_id
+                        # Verification-requester: the match itself is the
+                        # trigger - flags the OLDER finding, not this one.
+                        verifier.request_reverification(result.matched_finding_id, row, url)
                 except Exception:
                     pass
             try:
                 triage.triage(row, repo, database_url=url)
             except Exception:
-                continue
+                pass
+            if config is not None:
+                try:
+                    remediation.advise(row, config, url)
+                except Exception:
+                    continue
 
     return path

@@ -14,6 +14,7 @@ Honesty rules (Section 11):
   observable while it's unhealthy.
 """
 import hashlib
+import html
 import json
 import os
 import subprocess
@@ -337,12 +338,21 @@ def intelligence():
     def _sev_class(sev: str) -> str:
         return sev.upper() if sev.upper() in ("HIGH", "MEDIUM", "LOW") else ""
 
+    def _cell(text: str) -> str:
+        # suggested_fix/description are free-form LLM prose - escape before
+        # embedding, unlike the other fields here which are Verdict's own
+        # controlled vocabulary (vuln_class, status, etc).
+        return html.escape(text)
+
     finding_rows = "".join(
         f"<tr><td>{f.get('repo_name') or ''}</td><td>{f.get('vuln_class')}</td>"
         f"<td>{f.get('name')}</td>"
         f"<td class='{_sev_class(f.get('severity') or '')}'>{f.get('severity') or ''}</td>"
         f"<td>{f.get('status')}</td>"
-        f"<td>{'recurrence of #' + str(f['correlated_with']) if f.get('correlated_with') else ''}</td>"
+        f"<td>{'recurrence of #' + str(f['correlated_with']) if f.get('correlated_with') else ''}"
+        f"{' <span class=\"flag\">re-verify requested</span>' if f.get('reverification_reason') else ''}</td>"
+        f"<td class='fix' title='{_cell(f.get('suggested_fix') or '')}'>"
+        f"{_cell((f.get('suggested_fix') or '')[:80])}{'...' if f.get('suggested_fix') and len(f['suggested_fix']) > 80 else ''}</td>"
         f"<td>{str(f.get('created_at') or '')[:16]}</td></tr>"
         for f in findings
     )
@@ -351,6 +361,8 @@ def intelligence():
 <style>body{{font:14px ui-monospace,monospace;background:#0b0f14;color:#e5e7eb;padding:2rem}}
 table{{border-collapse:collapse;width:100%;margin-bottom:2rem}}td,th{{padding:.4rem .8rem;border-bottom:1px solid #1f2937;text-align:left}}
 .HIGH{{color:#ef4444}}.MEDIUM{{color:#eab308}}.LOW{{color:#22c55e}}
+.fix{{color:#9ca3af;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.flag{{color:#f97316;font-size:.8em}}
 h1{{color:#22d3ee;letter-spacing:.3em;font-size:1rem}}h2{{color:#9ca3af;font-size:.85rem;letter-spacing:.15em;text-transform:uppercase}}</style>
 </head><body>
 <h1>VERDICT INTELLIGENCE</h1>
@@ -358,8 +370,8 @@ h1{{color:#22d3ee;letter-spacing:.3em;font-size:1rem}}h2{{color:#9ca3af;font-siz
 <h2>Risk ranking</h2>
 <table><tr><th>repo</th><th>high</th><th>medium</th><th>low</th></tr>{ranking_rows or '<tr><td colspan=4>no findings yet</td></tr>'}</table>
 <h2>Findings</h2>
-<table><tr><th>repo</th><th>vuln class</th><th>name</th><th>severity</th><th>status</th><th>correlation</th><th>when</th></tr>
-{finding_rows or '<tr><td colspan=7>no findings yet</td></tr>'}</table>
+<table><tr><th>repo</th><th>vuln class</th><th>name</th><th>severity</th><th>status</th><th>correlation</th><th>suggested fix</th><th>when</th></tr>
+{finding_rows or '<tr><td colspan=8>no findings yet</td></tr>'}</table>
 </body></html>""")
 
 

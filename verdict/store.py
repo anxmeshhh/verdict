@@ -98,10 +98,17 @@ CREATE TABLE IF NOT EXISTS findings (
     source       TEXT NOT NULL,
     status       TEXT NOT NULL DEFAULT 'open',
     created_at   TIMESTAMPTZ NOT NULL,
-    correlated_with BIGINT REFERENCES findings(id)
+    correlated_with BIGINT REFERENCES findings(id),
+    suggested_fix TEXT,
+    reverification_reason TEXT
 );
 CREATE INDEX IF NOT EXISTS findings_vuln_class_idx ON findings(vuln_class);
 CREATE INDEX IF NOT EXISTS findings_status_idx ON findings(status);
+-- ALTER ... ADD COLUMN IF NOT EXISTS so an already-created findings table
+-- (from before these two columns existed) picks them up on the next
+-- 'verdict db init' without needing a manual migration.
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS suggested_fix TEXT;
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS reverification_reason TEXT;
 """
 
 
@@ -444,12 +451,15 @@ def _row_to_finding(row) -> dict:
         "status": row[9],
         "created_at": str(row[10]),
         "correlated_with": row[11],
+        "suggested_fix": row[12],
+        "reverification_reason": row[13],
     }
 
 
 _FINDING_COLS = (
     "id, run_id, repo_name, vuln_class, name, description, severity, "
-    "evidence, source, status, created_at, correlated_with"
+    "evidence, source, status, created_at, correlated_with, suggested_fix, "
+    "reverification_reason"
 )
 
 
@@ -519,3 +529,30 @@ def set_correlation(database_url: str, finding_id: int, correlated_with_id: int)
 def set_finding_status(database_url: str, finding_id: int, status: str) -> None:
     with connect(database_url) as conn:
         conn.execute("UPDATE findings SET status = %s WHERE id = %s", (status, finding_id))
+
+
+def get_finding(database_url: str, finding_id: int) -> dict | None:
+    with connect(database_url) as conn:
+        row = conn.execute(f"SELECT {_FINDING_COLS} FROM findings WHERE id = %s", (finding_id,)).fetchone()
+    return _row_to_finding(row) if row else None
+
+
+def set_suggested_fix(database_url: str, finding_id: int, suggestion: str) -> None:
+    """Remediation-advisor agent's one write - always a suggestion attached
+    to the record, never something that changes status or severity."""
+    with connect(database_url) as conn:
+        conn.execute(
+            "UPDATE findings SET suggested_fix = %s WHERE id = %s", (suggestion, finding_id)
+        )
+
+
+def set_reverification_reason(database_url: str, finding_id: int, reason: str) -> None:
+    """Verification-requester agent's one write - flags a PAST finding (the
+    one a new correlation just matched against) as worth a human re-check,
+    since the same pattern resurfacing elsewhere means the original fix may
+    not have been as complete as it looked. Metadata, not a status change -
+    only a real Verdict Core run can ever close a finding out."""
+    with connect(database_url) as conn:
+        conn.execute(
+            "UPDATE findings SET reverification_reason = %s WHERE id = %s", (reason, finding_id)
+        )
