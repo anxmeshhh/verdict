@@ -1,0 +1,46 @@
+{
+  "dataset": {
+    "source": "CVEfixes v1.0.0 (Bhandari, Naseer & Moonen, 2021)",
+    "doi": "10.5281/zenodo.4476563",
+    "base_rows": 60661,
+    "columns": [
+      "repo_name",
+      "cwe_id",
+      "cwe_name",
+      "severity",
+      "cvss3_base_score",
+      "author_date",
+      "complexity",
+      "nloc",
+      "token_count",
+      "before_change",
+      "severity_ordinal",
+      "author_date_epoch"
+    ]
+  },
+  "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU, 6141 MiB",
+  "cpu": "x86_64",
+  "python": "3.12.3",
+  "runs": [
+    {
+      "scale": "1x - real CVEfixes data, unmodified",
+      "rows": 60661,
+      "pandas_seconds": 0.0216,
+      "cudf_seconds": 0.1243,
+      "speedup_x": 0.17,
+      "outputs_equal": true,
+      "equality_check": "all rows and numeric columns match after sort"
+    },
+    {
+      "scale": "20x - real rows concatenated (simulated org-wide accumulation)",
+      "rows": 1213220,
+      "pandas_seconds": 0.1542,
+      "cudf_seconds": 0.0202,
+      "speedup_x": 7.62,
+      "outputs_equal": true,
+      "equality_check": "all rows and numeric columns match after sort"
+    }
+  ],
+  "note": "Each run executes the identical pandas-API groupby/aggregate rollup on both engines against the same data, then verifies the two outputs agree row-for-row before recording a speedup - a mismatch would be reported as a failure, not a speedup.",
+  "generated_at": "2026-07-05T06:57:33+0000"
+}
