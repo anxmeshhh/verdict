@@ -1088,6 +1088,43 @@ def findings(
 
 
 @app.command(rich_help_panel="Everyday")
+def agents(
+    follow: bool = typer.Option(False, "--follow", "-f", help="Live-tail agent activity as it happens"),
+    limit: int = typer.Option(40, help="How many recent events to show (non-follow mode)"),
+):
+    """Watch the autonomous agents work - each correlate, alert, suggest, and
+    re-verify as it happens. Run this in one terminal, 'verdict check' in
+    another, and see the layer light up live."""
+    from verdict.agents import events as agent_events_mod
+
+    repo = Path.cwd()
+    if not follow:
+        ui.agent_events(agent_events_mod.read_recent(repo, limit=limit))
+        ui.console.print("  [dim]live:[/] [cyan]verdict agents --follow[/]   [dim]full map:[/] [cyan]verdict findings[/]")
+        return
+
+    # Live tail: print what's already there, then poll for new lines. Tracks
+    # position by line count (the file is append-only, so a line once written
+    # never changes) - simple and correct without seeking byte offsets.
+    import time as _time
+
+    seen = 0
+    existing = agent_events_mod.read_recent(repo, limit=limit)
+    ui.agent_events(existing)
+    seen = len(agent_events_mod.read_recent(repo, limit=10**9))
+    ui.console.print("  [dim]watching for agent activity... (Ctrl+C to stop)[/]")
+    try:
+        while True:
+            all_events = agent_events_mod.read_recent(repo, limit=10**9)
+            for e in all_events[seen:]:
+                ui.agent_event_line(e)
+            seen = len(all_events)
+            _time.sleep(1)
+    except KeyboardInterrupt:
+        ui.console.print("\n  [dim]stopped watching[/]")
+
+
+@app.command(rich_help_panel="Everyday")
 def report(
     run_id: str = typer.Argument("last", help="Run to export ('last' = newest)"),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the report in your browser"),

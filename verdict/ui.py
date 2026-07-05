@@ -343,5 +343,49 @@ def findings_table(findings: list[dict]) -> None:
     console.print(table)
 
 
+_AGENT_STYLES = {
+    "correlator": "cyan",
+    "triage": "yellow",
+    "remediation": "green",
+    "verifier": "magenta",
+}
+_ACTION_STYLES = {
+    "reviewing": "dim",
+    "no-match": "dim",
+    "matched": "bold cyan",
+    "flagged": "bold magenta",
+    "alerted": "bold yellow",
+    "suggested": "bold green",
+}
+
+
+def agent_event_line(event: dict) -> None:
+    """One line of the live agent feed - timestamp, which agent, what it did.
+    The 'watch it work' view of the autonomous layer."""
+    import datetime as _dt
+
+    ts = _dt.datetime.fromtimestamp(event.get("ts", 0)).strftime("%H:%M:%S")
+    agent = event.get("agent", "?")
+    action = event.get("action", "")
+    detail = event.get("detail", "")
+    fid = event.get("finding_id")
+    line = Text()
+    line.append(f"{ts}  ", style="dim")
+    line.append(f"{agent.upper():<12}", style=_AGENT_STYLES.get(agent, "white"))
+    line.append(f"{action:<11}", style=_ACTION_STYLES.get(action, "white"))
+    if fid is not None:
+        line.append(f"#{fid} ", style="dim")
+    line.append(detail)
+    console.print(line)
+
+
+def agent_events(events: list[dict]) -> None:
+    if not events:
+        console.print("  [dim]no agent activity yet - run 'verdict check' on code with a security finding[/]")
+        return
+    for e in events:
+        agent_event_line(e)
+
+
 def show_test_code(code: str) -> None:
     console.print(Syntax(code, "python", theme="monokai", line_numbers=True, word_wrap=True))

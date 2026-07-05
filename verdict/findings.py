@@ -111,29 +111,48 @@ def run_agents(inserted: list[dict], repo: Path, config, database_url: str) -> N
     call opens its own connection (no shared DB handle), and none of these
     agents ever mutates the finding's verdict, only its metadata.
 
+    Each meaningful step is emitted to the agent activity stream
+    (verdict/agents/events.py) as it happens, so `verdict agents --follow`
+    can render it live - the "watch it work" view of a layer that otherwise
+    does all its work silently on a background thread.
+
     None of this is something a human has to ask for - that's the whole
     point of the layer - but it also must never be the reason a user waits
     for their verdict (see save(), which runs this in the background)."""
-    from verdict.agents import correlator, remediation, triage, verifier
+    from verdict.agents import correlator, events, remediation, triage, verifier
 
     for row in inserted:
+        events.emit(repo, "correlator", "reviewing",
+                    f"{row['vuln_class']} in {row.get('repo_name') or 'repo'}: {row['name']}", row["id"])
         if config is not None:
             try:
                 result = correlator.correlate(row, config, database_url)
                 if result is not None:
                     row["correlated_with"] = result.matched_finding_id
+                    events.emit(repo, "correlator", "matched",
+                                f"same as finding #{result.matched_finding_id}: {result.reason}", row["id"])
                     # Verification-requester: the match itself is the
                     # trigger - flags the OLDER finding, not this one.
                     verifier.request_reverification(result.matched_finding_id, row, database_url)
+                    events.emit(repo, "verifier", "flagged",
+                                f"re-verify finding #{result.matched_finding_id} - same pattern resurfaced",
+                                result.matched_finding_id)
+                else:
+                    events.emit(repo, "correlator", "no-match",
+                                "first occurrence of this pattern", row["id"])
             except Exception:
                 pass
         try:
-            triage.triage(row, repo, database_url=database_url)
+            alert = triage.triage(row, repo, database_url=database_url)
+            if alert is not None:
+                events.emit(repo, "triage", "alerted", f"{alert.severity} - {alert.reason}", row["id"])
         except Exception:
             pass
         if config is not None:
             try:
-                remediation.advise(row, config, database_url)
+                suggestion = remediation.advise(row, config, database_url)
+                if suggestion:
+                    events.emit(repo, "remediation", "suggested", suggestion[:90], row["id"])
             except Exception:
                 continue
 
