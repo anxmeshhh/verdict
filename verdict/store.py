@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS findings (
     source       TEXT NOT NULL,
     status       TEXT NOT NULL DEFAULT 'open',
     created_at   TIMESTAMPTZ NOT NULL,
-    correlated_with BIGINT REFERENCES findings(id),
+    correlated_with BIGINT REFERENCES findings(id) ON DELETE SET NULL,
     suggested_fix TEXT,
     reverification_reason TEXT
 );
@@ -109,6 +109,13 @@ CREATE INDEX IF NOT EXISTS findings_status_idx ON findings(status);
 -- 'verdict db init' without needing a manual migration.
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS suggested_fix TEXT;
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS reverification_reason TEXT;
+-- correlated_with is a self-reference: deleting an older finding that a
+-- newer one points at must null the link, never block the delete or cascade
+-- into deleting the unrelated newer finding. Re-apply for tables created
+-- before ON DELETE SET NULL was set.
+ALTER TABLE findings DROP CONSTRAINT IF EXISTS findings_correlated_with_fkey;
+ALTER TABLE findings ADD CONSTRAINT findings_correlated_with_fkey
+    FOREIGN KEY (correlated_with) REFERENCES findings(id) ON DELETE SET NULL;
 """
 
 
