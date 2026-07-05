@@ -1048,6 +1048,46 @@ def runs(limit: int = typer.Option(15, help="How many recent runs to show")):
 
 
 @app.command(rich_help_panel="Everyday")
+def findings(
+    limit: int = typer.Option(30, help="How many recent findings to show"),
+    open_only: bool = typer.Option(False, "--open", help="Only findings still open (not alerted/resolved)"),
+):
+    """The standing vulnerability map - security findings across every run,
+    with what the autonomous agents did to each (correlation, re-verify
+    flags, suggested fixes). The CLI-first view of Verdict Intelligence."""
+    from verdict import store
+
+    config = load_config()
+    url = store.resolve_database_url(config)
+    if not url:
+        # Without the data layer there's no queryable map and the agents
+        # never ran - be explicit about how to turn it on rather than
+        # showing a confusing empty table.
+        ui.stage_warn("findings", "the standing vulnerability map needs the data layer")
+        ui.console.print(
+            "  [dim]security findings are still recorded locally per run under[/] [cyan].verdict/findings/[/][dim],"
+            " but correlation, alerting, and\n  suggested fixes (the autonomous agent layer) need Postgres. Turn it on:[/]"
+        )
+        ui.console.print(
+            "  [cyan]verdict config set database_url postgresql://user:pass@host:5432/verdict[/]  [dim]&&[/]  [cyan]verdict db init[/]"
+        )
+        return
+
+    try:
+        rows = store.list_findings(url, status="open" if open_only else None, limit=limit)
+    except store.StoreError as e:
+        _fail("findings", str(e))
+    if not rows:
+        ui.stage_ok("findings", "no security findings recorded - the map is clean")
+        return
+    ui.findings_table(rows)
+    ui.console.print(
+        "  [dim]live view:[/] [cyan]verdict serve[/] [dim]then open[/] [cyan]/intelligence[/]"
+        "   [dim]a finding is only closed by a real re-run, never by an agent[/]"
+    )
+
+
+@app.command(rich_help_panel="Everyday")
 def report(
     run_id: str = typer.Argument("last", help="Run to export ('last' = newest)"),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the report in your browser"),

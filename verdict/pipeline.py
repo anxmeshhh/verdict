@@ -408,6 +408,19 @@ def _execute(
     findings_path = findings.save(security_findings, repo, run_id, config=config)
     if security_findings:
         events.stage_note("findings", f"{len(security_findings)} security finding(s) recorded")
+        # If the data layer isn't configured the four agents never ran and
+        # there's no standing map - say so once, here, so this isn't a
+        # silent dead end. With it on, the agents are already working in the
+        # background by now (findings.save dispatched them off-thread).
+        from verdict import store as _store
+
+        if not _store.resolve_database_url(config):
+            events.stage_note(
+                "intelligence",
+                "off - set database_url + 'verdict db init' to correlate, alert & suggest fixes autonomously",
+            )
+        else:
+            events.stage_note("intelligence", "agents running in the background - 'verdict findings' to see them")
 
     record = build_record(run_id, intent_result, generation, results, risk, llm.model_id(config), tokens)
     record["scope"] = params.scope

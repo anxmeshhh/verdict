@@ -300,5 +300,48 @@ def runs_table(records: list[dict]) -> None:
     console.print(table)
 
 
+SEVERITY_STYLES = {
+    "CRITICAL": "bold white on red",
+    "HIGH": "bold white on red",
+    "MEDIUM": "bold black on yellow",
+    "LOW": "bold white on green",
+}
+
+
+def findings_table(findings: list[dict]) -> None:
+    """Verdict Intelligence's findings as a table - the CLI-first view of the
+    standing vulnerability map, matching verdict runs. Shows what the four
+    agents did to each finding (correlation, re-verify flag, suggested fix)
+    without anyone opening the web page or reading JSON."""
+    table = Table(border_style="dim", header_style="bold cyan", padding=(0, 1))
+    table.add_column("id", style="dim", justify="right")
+    table.add_column("repo")
+    table.add_column("class")
+    table.add_column("severity")
+    table.add_column("status", style="dim")
+    table.add_column("agents")
+    table.add_column("suggested fix", style="dim")
+    for f in findings:
+        sev = (f.get("severity") or "").upper()
+        severity = Text(f" {sev} ", style=SEVERITY_STYLES.get(sev, "dim")) if sev else Text("-", style="dim")
+        agents = Text()
+        if f.get("correlated_with"):
+            agents.append(f"recurrence of #{f['correlated_with']}", style="yellow")
+        if f.get("reverification_reason"):
+            agents.append("  re-verify", style="bold yellow")
+        fix = f.get("suggested_fix") or ""
+        fix_short = (fix[:50] + "...") if len(fix) > 50 else fix
+        table.add_row(
+            str(f.get("id", "")),
+            f.get("repo_name") or "-",
+            f.get("vuln_class") or "-",
+            severity,
+            f.get("status") or "open",
+            agents or Text("-", style="dim"),
+            fix_short or "-",
+        )
+    console.print(table)
+
+
 def show_test_code(code: str) -> None:
     console.print(Syntax(code, "python", theme="monokai", line_numbers=True, word_wrap=True))
