@@ -11,10 +11,10 @@ an event, and a frontend that does nothing (the default PipelineEvents)
 still produces the same records, audit entries, and outcome.
 """
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from verdict import audit, llm
+from verdict import audit, findings, llm
 from verdict.authoring import AuthoringError, load_scenarios
 from verdict.config import Config
 from verdict.generator import GenerationError, generate
@@ -401,6 +401,14 @@ def _execute(
     risk = score(results)
     events.stage_ok("score", risk.level)
 
+    # Findings extraction runs after the confirm-FAILED pass above, on
+    # whatever's left as genuinely "failed" - a flaky generated test that got
+    # downgraded to "uncertain" must never produce a finding either.
+    security_findings = findings.extract(results, generation.scenarios, repo)
+    findings_path = findings.save(security_findings, repo, run_id)
+    if security_findings:
+        events.stage_note("findings", f"{len(security_findings)} security finding(s) recorded")
+
     record = build_record(run_id, intent_result, generation, results, risk, llm.model_id(config), tokens)
     record["scope"] = params.scope
     if ungeneratable:
@@ -409,6 +417,9 @@ def _execute(
         record["failure_not_reproduced"] = downgraded
     if cap_dropped:
         record["scenario_cap_dropped"] = [s.name for s in cap_dropped]
+    if security_findings:
+        record["findings"] = [asdict(f) for f in security_findings]
+        record["findings_path"] = str(findings_path) if findings_path else None
     save_run(record, repo)
     audit.append(
         "run_completed",

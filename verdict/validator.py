@@ -137,6 +137,76 @@ _UNSUPPORTED_BEHAVIOR_CLAIMS = [
         "claims a specific input format is validated (email/url/schema), but the diff "
         "has no pattern-matching or validation construct that could check it",
     ),
+    # Phase 6: security-shaped claim guards, same spirit as the four above -
+    # a model asserting a security control exists must be checked against the
+    # diff the same way a behavioral claim is, not trusted just because it's
+    # tagged with a vuln_class.
+    (
+        "injection-prevention",
+        re.compile(
+            r"\b(prevents?|preventing|escapes?|escaping|escaped|sanitiz\w*|parameteriz\w*)\b"
+            r".{0,30}\b(sql|injection|query|command|shell)\b|\b(sql|command)[- ]?injection\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\?\s*,|%s.{0,15}(execute|query)|execute\s*\(\s*[\"'][^\"']*[?%]|\.prepare\s*\("
+            r"|\.escape\(|shlex\.quote|parameteriz"
+            # generic cross-language escaping idiom, case-insensitive covers
+            # both quote(...) and Perl DBI's ->Quote(...) - found live in a
+            # real CVEfixes commit (OTRS) that the Python-only patterns above
+            # missed entirely
+            r"|\bquote\s*\(",
+            re.IGNORECASE,
+        ),
+        "claims SQL/command injection is prevented via escaping or parameterization, but "
+        "the diff has no parameterized-query placeholder, prepare() call, or escaping/quoting "
+        "function anywhere in the added lines",
+    ),
+    (
+        "auth-bypass-prevention",
+        re.compile(
+            r"\b(requires?|checks?|verifies?|enforces?)\b.{0,25}"
+            r"\b(auth(entication|orization)?|permission|access\s?control|privilege)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"@(login_required|requires?_auth|permission_required)|check_permission|"
+            r"has_permission|is_authenticated|require_auth\s*\(|@auth\.",
+            re.IGNORECASE,
+        ),
+        "claims an authentication/authorization check is enforced, but the diff has no "
+        "auth decorator, permission check, or authentication-verifying call at all",
+    ),
+    (
+        "secret-leak-prevention",
+        re.compile(
+            r"\b(redact\w*|mask\w*|scrub\w*|obfuscat\w*)\b.{0,25}"
+            r"\b(secret|password|token|credential|api[_ ]?key)\b"
+            r"|\b(secret|password|token|credential)\b.{0,25}\bnot\b.{0,10}\b(logg?ed|exposed?|returned?)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"redact\s*\(|mask\s*\(|\*{3,}|re\.sub\s*\(.{0,40}(password|secret|token)"
+            r"|\bdel\s+\w*(password|secret|token)|\.pop\s*\(.{0,20}(password|secret|token)",
+            re.IGNORECASE,
+        ),
+        "claims a secret/credential is redacted, masked, or kept out of logs, but the diff "
+        "has no redaction, masking, or field-removal construct at all",
+    ),
+    (
+        "insecure-deserialization-prevention",
+        re.compile(
+            r"\b(valid\w*|safe\w*|sanitiz\w*)\b.{0,25}\b(deserializ\w*|pickle|unpickl\w*|yaml\.load|eval)\b"
+            r"|\bprevents?\b.{0,20}\bdeserialization\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"yaml\.safe_load|SafeLoader|json\.loads|isinstance\s*\(|schema\.validate|\.validate\s*\(",
+            re.IGNORECASE,
+        ),
+        "claims unsafe deserialization is validated against or prevented, but the diff has "
+        "no safe-loader, schema validation, or type check guarding the deserialize call",
+    ),
 ]
 
 

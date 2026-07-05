@@ -1,0 +1,32 @@
+{
+  "methodology": "Same scope as phase0/'s original precision test: real {diff, intent} pairs through the real scenario-gen LLM call + real validator, no sandbox execution. A commit counts as caught only if a scenario tagged with the CORRECT vuln_class survived the validator's traceability check.",
+  "note": "Preserved as-is for the before/after record. This run used the original secret_leak CWE mapping (CWE-798, CWE-532, CWE-312) and the pre-fix injection-prevention evidence regex (no generic quote()/Quote() recognition). Superseded by gate_results.json after two real fixes were made from this run's own evidence.",
+  "model": "groq/openai/gpt-oss-120b",
+  "provider": "groq",
+  "overall": {
+    "total": 20,
+    "caught": 16,
+    "recall": 0.8
+  },
+  "per_class": {
+    "injection": { "total": 5, "caught": 4, "recall": 0.8 },
+    "auth_bypass": { "total": 5, "caught": 3, "recall": 0.6 },
+    "secret_leak": { "total": 5, "caught": 4, "recall": 0.8 },
+    "insecure_deserialization": { "total": 5, "caught": 5, "recall": 1.0 }
+  },
+  "known_issues_found_and_fixed": [
+    {
+      "case": "injection, commit 0680603a07b8 (OTRS)",
+      "issue": "Real fix was Perl DBI's ->Quote() escaping call - validator's evidence regex only recognized Python-style .escape()/shlex.quote, missed this cross-language idiom entirely.",
+      "fix": "Broadened verdict/validator.py's injection-prevention evidence pattern to include quote(/Quote( generically.",
+      "verified": "Re-run after the fix: injection recall went 4/5 -> 5/5."
+    },
+    {
+      "case": "secret_leak, commit 146cc8a17a3b (USB kl5kusb105 kernel driver)",
+      "issue": "CWE-532 ('sensitive info in log file') is a broader real-world category than this project's secret_leak vuln_class (credentials/tokens/API keys specifically) - this commit's actual leak was an uninitialized memory buffer, not a credential.",
+      "fix": "Narrowed hackathon/security_gen_eval/extract_dataset.py's CWE_MAP for secret_leak to CWE-798 + CWE-312 only, dropping the too-broad CWE-532.",
+      "verified": "Not a validator bug - a sampling/taxonomy correction, documented rather than hidden."
+    }
+  ],
+  "generated_at": "2026-07-05T13:11:49+0530"
+}

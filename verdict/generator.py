@@ -42,7 +42,12 @@ MAX_ATTEMPTS = 2
 # should invalidate old cache entries - belt-and-suspenders alongside hashing
 # the rendered prompt itself (which already changes on any wording edit);
 # the explicit constant is a visible, intentional reminder at review time.
-CACHE_VERSION = 1
+CACHE_VERSION = 2
+
+# Security-shaped scenario taxonomy (Phase 6). Deliberately excludes
+# dependency CVEs - those are checked deterministically against a real
+# advisory database (verdict/depcheck.py), never left to the model to guess.
+VULN_CLASSES = ("injection", "auth_bypass", "secret_leak", "insecure_deserialization")
 
 PROMPT_TEMPLATE = """You are reviewing a code change to verify it does what it claims.
 
@@ -55,9 +60,23 @@ Diff:
 Propose 2-5 concrete test scenarios that would verify whether this change
 actually fulfills the stated intent. Each scenario must be something you
 could plausibly check by running code against this diff - not a vague
-suggestion. Respond with ONLY valid JSON in this exact shape, no other text:
+suggestion.
 
-{{"scenarios": [{{"name": "short_snake_case_name", "description": "one sentence describing what is being verified"}}]}}
+Also propose a security-shaped scenario for each of these vulnerability
+classes that plausibly applies to this diff (skip a class entirely if
+nothing in the diff could relate to it - do not invent one): injection
+(SQL/command/etc, untrusted input reaching a query or shell call unescaped),
+auth_bypass (a permission/authorization check that's missing or can be
+skipped), secret_leak (a credential/token/key logged, returned, or exposed),
+insecure_deserialization (untrusted data deserialized without validation).
+Tag each of these with the matching "vuln_class" value; leave "vuln_class"
+out entirely for a plain correctness scenario.
+
+Respond with ONLY valid JSON in this exact shape, no other text:
+
+{{"scenarios": [{{"name": "short_snake_case_name", "description": "one sentence describing what is being verified", "vuln_class": "injection"}}]}}
+
+("vuln_class" is optional - include it only for a security-shaped scenario, using exactly one of: injection, auth_bypass, secret_leak, insecure_deserialization.)
 """
 
 
@@ -65,6 +84,7 @@ suggestion. Respond with ONLY valid JSON in this exact shape, no other text:
 class Scenario:
     name: str
     description: str
+    vuln_class: str | None = None
 
 
 @dataclass
@@ -141,7 +161,15 @@ def _parse_scenarios(raw: str) -> list[Scenario]:
         description = str(item.get("description", "")).strip()
         if not name or not description:
             raise ValueError(f"scenario missing name or description: {item!r}")
-        scenarios.append(Scenario(name=name, description=description))
+        vuln_class = item.get("vuln_class")
+        vuln_class = str(vuln_class).strip() if vuln_class else None
+        if vuln_class and vuln_class not in VULN_CLASSES:
+            # A model inventing its own category is exactly the kind of
+            # unchecked claim Section 13 rules out - drop the tag rather than
+            # trust an unrecognized class, the scenario itself still runs as
+            # a plain correctness check.
+            vuln_class = None
+        scenarios.append(Scenario(name=name, description=description, vuln_class=vuln_class))
     return scenarios
 
 

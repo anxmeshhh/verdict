@@ -1,0 +1,334 @@
+{
+  "methodology": "Same scope as phase0/'s original precision test: real {diff, intent} pairs through the real scenario-gen LLM call + real validator, no sandbox execution. A commit counts as caught only if a scenario tagged with the CORRECT vuln_class survived the validator's traceability check.",
+  "model": "groq/openai/gpt-oss-120b",
+  "provider": "groq",
+  "overall": {
+    "total": 20,
+    "caught": 15,
+    "recall": 0.75
+  },
+  "per_class": {
+    "injection": {
+      "total": 5,
+      "caught": 5,
+      "recall": 1.0
+    },
+    "auth_bypass": {
+      "total": 5,
+      "caught": 4,
+      "recall": 0.8
+    },
+    "secret_leak": {
+      "total": 5,
+      "caught": 2,
+      "recall": 0.4
+    },
+    "insecure_deserialization": {
+      "total": 5,
+      "caught": 4,
+      "recall": 0.8
+    }
+  },
+  "details": [
+    {
+      "hash": "01ef56cd5824",
+      "repo_url": "https://github.com/sebhildebrandt/systeminformation",
+      "expected_vuln_class": "injection",
+      "proposed_vuln_classes": [
+        "injection",
+        "injection",
+        "injection"
+      ],
+      "kept_vuln_classes": [
+        "injection",
+        "injection",
+        "injection"
+      ],
+      "scenario_names_kept_correct": [
+        "ping_uses_execsave",
+        "params_split_correctly",
+        "no_unintended_command_execution"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "02cf13d8b93a",
+      "repo_url": "https://github.com/codecov/codecov-node",
+      "expected_vuln_class": "injection",
+      "proposed_vuln_classes": [
+        "injection"
+      ],
+      "kept_vuln_classes": [
+        "injection"
+      ],
+      "scenario_names_kept_correct": [
+        "injection_possible_with_semicolon"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "0680603a07b8",
+      "repo_url": "https://github.com/OTRS/otrs",
+      "expected_vuln_class": "injection",
+      "proposed_vuln_classes": [
+        "injection"
+      ],
+      "kept_vuln_classes": [
+        "injection"
+      ],
+      "scenario_names_kept_correct": [
+        "sql_injection_prevented"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "078035f1ef73",
+      "repo_url": "https://github.com/fatfreecrm/fat_free_crm",
+      "expected_vuln_class": "injection",
+      "proposed_vuln_classes": [
+        "injection",
+        "auth_bypass"
+      ],
+      "kept_vuln_classes": [
+        "injection",
+        "auth_bypass"
+      ],
+      "scenario_names_kept_correct": [
+        "injection_state_parameter"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "0795ab57c7ff",
+      "repo_url": "https://github.com/jbroadway/elefant",
+      "expected_vuln_class": "injection",
+      "proposed_vuln_classes": [
+        "injection"
+      ],
+      "kept_vuln_classes": [
+        "injection"
+      ],
+      "scenario_names_kept_correct": [
+        "css_injection_prevented"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "0279fa7dff17",
+      "repo_url": "https://github.com/oauth2-proxy/oauth2-proxy",
+      "expected_vuln_class": "auth_bypass",
+      "proposed_vuln_classes": [
+        "auth_bypass"
+      ],
+      "kept_vuln_classes": [
+        "auth_bypass"
+      ],
+      "scenario_names_kept_correct": [
+        "auth_bypass_via_spoofed_userinfo_groups"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "0fadc3e592d8",
+      "repo_url": "https://github.com/openemr/openemr",
+      "expected_vuln_class": "auth_bypass",
+      "proposed_vuln_classes": [
+        "injection",
+        "injection"
+      ],
+      "kept_vuln_classes": [
+        "injection"
+      ],
+      "scenario_names_kept_correct": [],
+      "outcome": "missed"
+    },
+    {
+      "hash": "147cec383892",
+      "repo_url": "https://github.com/sddm/sddm",
+      "expected_vuln_class": "auth_bypass",
+      "proposed_vuln_classes": [
+        "auth_bypass"
+      ],
+      "kept_vuln_classes": [
+        "auth_bypass"
+      ],
+      "scenario_names_kept_correct": [
+        "auth_bypass_prevention"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "16af238036a5",
+      "repo_url": "https://github.com/lxc/lxc",
+      "expected_vuln_class": "auth_bypass",
+      "proposed_vuln_classes": [
+        "auth_bypass"
+      ],
+      "kept_vuln_classes": [
+        "auth_bypass"
+      ],
+      "scenario_names_kept_correct": [
+        "auth_bypass_root_user"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "1d146f5c32e5",
+      "repo_url": "https://github.com/openstack/keystone",
+      "expected_vuln_class": "auth_bypass",
+      "proposed_vuln_classes": [
+        "auth_bypass"
+      ],
+      "kept_vuln_classes": [
+        "auth_bypass"
+      ],
+      "scenario_names_kept_correct": [
+        "non_admin_token_denied"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "1a7172c95af8",
+      "repo_url": "https://github.com/opencast/opencast",
+      "expected_vuln_class": "secret_leak",
+      "proposed_vuln_classes": [
+        "secret_leak",
+        "auth_bypass"
+      ],
+      "kept_vuln_classes": [
+        "secret_leak",
+        "auth_bypass"
+      ],
+      "scenario_names_kept_correct": [
+        "secret_leak_debug_logging"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "53f126082a8b",
+      "repo_url": "https://github.com/ether/etherpad-lite",
+      "expected_vuln_class": "secret_leak",
+      "proposed_vuln_classes": [
+        "secret_leak"
+      ],
+      "kept_vuln_classes": [],
+      "scenario_names_kept_correct": [],
+      "outcome": "missed"
+    },
+    {
+      "hash": "6a6d14328b7a",
+      "repo_url": "https://github.com/kaltura/server",
+      "expected_vuln_class": "secret_leak",
+      "proposed_vuln_classes": [
+        "insecure_deserialization"
+      ],
+      "kept_vuln_classes": [
+        "insecure_deserialization"
+      ],
+      "scenario_names_kept_correct": [],
+      "outcome": "missed"
+    },
+    {
+      "hash": "876d13c6d20e",
+      "repo_url": "https://github.com/dogtagpki/pki",
+      "expected_vuln_class": "secret_leak",
+      "proposed_vuln_classes": [
+        "auth_bypass",
+        "secret_leak"
+      ],
+      "kept_vuln_classes": [
+        "auth_bypass",
+        "secret_leak"
+      ],
+      "scenario_names_kept_correct": [
+        "secret_leak_shared_secret_absence"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "9a7c1a91a59a",
+      "repo_url": "https://github.com/keycloak/keycloak",
+      "expected_vuln_class": "secret_leak",
+      "proposed_vuln_classes": [],
+      "kept_vuln_classes": [],
+      "scenario_names_kept_correct": [],
+      "outcome": "missed"
+    },
+    {
+      "hash": "1861e33fe05f",
+      "repo_url": "https://github.com/tecnickcom/TCPDF",
+      "expected_vuln_class": "insecure_deserialization",
+      "proposed_vuln_classes": [
+        "insecure_deserialization"
+      ],
+      "kept_vuln_classes": [
+        "insecure_deserialization"
+      ],
+      "scenario_names_kept_correct": [
+        "phar_unserialize_prevented"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "1a74e7983091",
+      "repo_url": "https://github.com/cakephp/cakephp",
+      "expected_vuln_class": "insecure_deserialization",
+      "proposed_vuln_classes": [
+        "insecure_deserialization",
+        "secret_leak"
+      ],
+      "kept_vuln_classes": [],
+      "scenario_names_kept_correct": [],
+      "outcome": "missed"
+    },
+    {
+      "hash": "24fac8219129",
+      "repo_url": "https://github.com/x-stream/xstream",
+      "expected_vuln_class": "insecure_deserialization",
+      "proposed_vuln_classes": [
+        "insecure_deserialization"
+      ],
+      "kept_vuln_classes": [
+        "insecure_deserialization"
+      ],
+      "scenario_names_kept_correct": [
+        "deserialization_blocked"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "254e3d0ee873",
+      "repo_url": "https://github.com/rubygems/rubygems",
+      "expected_vuln_class": "insecure_deserialization",
+      "proposed_vuln_classes": [
+        "insecure_deserialization",
+        "insecure_deserialization"
+      ],
+      "kept_vuln_classes": [
+        "insecure_deserialization",
+        "insecure_deserialization"
+      ],
+      "scenario_names_kept_correct": [
+        "reject_custom_object",
+        "reject_builtin_object"
+      ],
+      "outcome": "caught"
+    },
+    {
+      "hash": "26433d15b579",
+      "repo_url": "https://github.com/OpenMage/magento-lts",
+      "expected_vuln_class": "insecure_deserialization",
+      "proposed_vuln_classes": [
+        "insecure_deserialization"
+      ],
+      "kept_vuln_classes": [
+        "insecure_deserialization"
+      ],
+      "scenario_names_kept_correct": [
+        "recurring_profile_malicious_serialized_blocked"
+      ],
+      "outcome": "caught"
+    }
+  ],
+  "generated_at": "2026-07-05T13:18:52+0530"
+}
