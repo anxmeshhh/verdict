@@ -154,20 +154,26 @@ def shell_help() -> None:
     console.print()
 
 
+# Wide enough for the longest numbered stage label ("3/6 scenario-load"),
+# so the "N/6" step prefixes pipeline.py attaches to stage names stay
+# aligned instead of crowding straight into the detail text.
+_STAGE_WIDTH = 18
+
+
 def stage_ok(name: str, detail: str = "") -> None:
-    console.print(f"  [green]{CHECK}[/] [bold]{name:14}[/] [white]{detail}[/]")
+    console.print(f"  [green]{CHECK}[/] [bold]{name:{_STAGE_WIDTH}}[/] [white]{detail}[/]")
 
 
 def stage_note(name: str, detail: str) -> None:
-    console.print(f"  [dim]{DOT}[/] [bold dim]{name:14}[/] [dim]{detail}[/]")
+    console.print(f"  [dim]{DOT}[/] [bold dim]{name:{_STAGE_WIDTH}}[/] [dim]{detail}[/]")
 
 
 def stage_warn(name: str, detail: str) -> None:
-    console.print(f"  [yellow]![/] [bold]{name:14}[/] [yellow]{detail}[/]")
+    console.print(f"  [yellow]![/] [bold]{name:{_STAGE_WIDTH}}[/] [yellow]{detail}[/]")
 
 
 def stage_fail(name: str, detail: str) -> None:
-    console.print(f"  [red]{CROSS}[/] [bold]{name:14}[/] [red]{detail}[/]")
+    console.print(f"  [red]{CROSS}[/] [bold]{name:{_STAGE_WIDTH}}[/] [red]{detail}[/]")
 
 
 def scenario_line(name: str, description: str = "") -> None:
@@ -313,14 +319,17 @@ def findings_table(findings: list[dict]) -> None:
     standing vulnerability map, matching verdict runs. Shows what the four
     agents did to each finding (correlation, re-verify flag, suggested fix)
     without anyone opening the web page or reading JSON."""
+    # overflow="fold" everywhere text can be long: Rich's default crop uses a
+    # unicode ellipsis that a legacy cp1252 Windows console can't encode
+    # (renders as a replacement char), so wrap instead of crop.
     table = Table(border_style="dim", header_style="bold cyan", padding=(0, 1))
     table.add_column("id", style="dim", justify="right")
-    table.add_column("repo")
-    table.add_column("class")
+    table.add_column("repo", overflow="fold")
+    table.add_column("class", overflow="fold")
     table.add_column("severity")
     table.add_column("status", style="dim")
-    table.add_column("agents")
-    table.add_column("suggested fix", style="dim")
+    table.add_column("agents", overflow="fold")
+    table.add_column("suggested fix", style="dim", overflow="fold", max_width=32)
     for f in findings:
         sev = (f.get("severity") or "").upper()
         severity = Text(f" {sev} ", style=SEVERITY_STYLES.get(sev, "dim")) if sev else Text("-", style="dim")

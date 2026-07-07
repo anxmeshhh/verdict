@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Log in</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="card">
+    <h1>Log in</h1>
+    <form id="login-form">
+      <label>Email
+        <input type="email" id="email" required>
+      </label>
+      <label>Password
+        <input type="password" id="password" required>
+      </label>
+      <button type="submit">Log in</button>
+    </form>
+    <p id="message" class="message"></p>
+    <p class="switch">No account? <a href="/signup">Sign up</a></p>
+  </div>
+  <script>
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      const msg = document.getElementById("message");
+      if (res.ok) {
+        msg.textContent = data.message;
+        msg.className = "message success";
+        window.location.href = "/dashboard";
+      } else {
+        msg.textContent = data.error;
+        msg.className = "message error";
+      }
+    });
+  </script>
+</body>
+</html>

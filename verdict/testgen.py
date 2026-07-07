@@ -19,6 +19,14 @@ from verdict.intent import IntentResult
 MAX_DIFF_CHARS = 20_000
 GENERATION_TIMEOUT = 300
 
+# Each scenario's test-code generation is one independent LLM call with no
+# shared state - safe to run concurrently. Bounded (not unbounded) for the
+# same reason as sandbox.py's DEFAULT_SANDBOX_CONCURRENCY: local providers
+# (Ollama) queue concurrent requests against one model rather than truly
+# parallelizing, so a large fan-out buys nothing and just holds more threads
+# open. 3 is a safe default for both local and cloud providers.
+DEFAULT_TESTGEN_CONCURRENCY = 3
+
 PROMPT_TEMPLATE = """You are writing an automated check for a code change.
 
 Stated intent of the change:

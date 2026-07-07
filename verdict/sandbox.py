@@ -55,6 +55,18 @@ def _host_path(p: Path) -> str:
     return resolved
 
 
+def _pip_cache_dir(repo: Path) -> Path:
+    """Persistent, repo-local pip cache shared across every scenario
+    container and every run. Without it, each of up to max_scenarios
+    containers re-downloads the same wheels from PyPI from a cold cache,
+    every single time - the single biggest avoidable chunk of per-run
+    latency on a repo with any real dependencies. Safe to share across
+    concurrent containers: pip's cache is designed for concurrent access."""
+    cache = repo / ".verdict" / "cache" / "pip"
+    cache.mkdir(parents=True, exist_ok=True)
+    return cache
+
+
 def _scratch_dir() -> str | None:
     """Where the per-test scratch dir lives. In DooD mode the system temp dir
     is container-local - the host daemon mounts a nonexistent path and the
@@ -143,6 +155,7 @@ def run_test(
             "--cpus", CPU_LIMIT,
             "-v", f"{_host_path(repo)}:/src:ro",
             "-v", f"{_host_path(Path(tmp))}:/verdict:ro",
+            "-v", f"{_host_path(_pip_cache_dir(repo))}:/root/.cache/pip",
             # Running python against an absolute script path (below) sets
             # sys.path[0] to the SCRIPT's directory (/verdict), not the repo
             # copy at /app, even after `cd /app` - so repo modules would

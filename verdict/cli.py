@@ -40,6 +40,7 @@ from verdict.reporter import (
     save_html,
 )
 from verdict.sandbox import DEFAULT_SANDBOX_CONCURRENCY, check_docker
+from verdict.testgen import DEFAULT_TESTGEN_CONCURRENCY
 from verdict.validator import validate
 
 
@@ -533,6 +534,10 @@ def run(
         DEFAULT_SANDBOX_CONCURRENCY, "--sandbox-concurrency",
         help="Run up to this many scenario containers at once (each is fully isolated); 1 = sequential",
     ),
+    testgen_concurrency: int = typer.Option(
+        DEFAULT_TESTGEN_CONCURRENCY, "--testgen-concurrency",
+        help="Ask the model for up to this many scenarios' test code at once; 1 = sequential",
+    ),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
     force_regenerate: bool = typer.Option(
         False, "--force-regenerate", help="Bypass the scenario-gen cache and ask the model fresh"
@@ -561,6 +566,7 @@ def run(
         scenarios_file=scenarios_file, hybrid=hybrid,
         max_scenarios=max_scenarios, timeout=timeout,
         force_regenerate=force_regenerate, sandbox_concurrency=sandbox_concurrency,
+        testgen_concurrency=testgen_concurrency,
     )
     _run_and_finish(params, config, repo, as_json)
 
@@ -597,6 +603,10 @@ def check(
     sandbox_concurrency: int = typer.Option(
         DEFAULT_SANDBOX_CONCURRENCY, "--sandbox-concurrency",
         help="Run up to this many scenario containers at once; 1 = sequential",
+    ),
+    testgen_concurrency: int = typer.Option(
+        DEFAULT_TESTGEN_CONCURRENCY, "--testgen-concurrency",
+        help="Ask the model for up to this many scenarios' test code at once; 1 = sequential",
     ),
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
     force_regenerate: bool = typer.Option(
@@ -644,12 +654,14 @@ def check(
         ui.stage_note("check", "uncommitted changes found - verifying the working tree (intent from .verdict/INTENT.md)")
         params = PipelineParams(intent=intent_text, paths=path, max_scenarios=max_scenarios,
                                 timeout=timeout, force_regenerate=force_regenerate,
-                                sandbox_concurrency=sandbox_concurrency)
+                                sandbox_concurrency=sandbox_concurrency,
+                                testgen_concurrency=testgen_concurrency)
     else:
         ui.stage_note("check", "working tree clean - verifying the last commit (intent from its message)")
         params = PipelineParams(paths=path, max_scenarios=max_scenarios,
                                 timeout=timeout, force_regenerate=force_regenerate,
-                                sandbox_concurrency=sandbox_concurrency)
+                                sandbox_concurrency=sandbox_concurrency,
+                                testgen_concurrency=testgen_concurrency)
 
     _run_and_finish(params, config, repo, as_json)
 
@@ -698,6 +710,10 @@ def watch(
     sandbox_concurrency: int = typer.Option(
         DEFAULT_SANDBOX_CONCURRENCY, "--sandbox-concurrency",
         help="Run up to this many scenario containers at once; 1 = sequential",
+    ),
+    testgen_concurrency: int = typer.Option(
+        DEFAULT_TESTGEN_CONCURRENCY, "--testgen-concurrency",
+        help="Ask the model for up to this many scenarios' test code at once; 1 = sequential",
     ),
 ):
     """Live mode: watch the working tree while you (or your agent) build.
@@ -758,6 +774,7 @@ def watch(
                                 scenarios_file=None, hybrid=False,
                                 max_scenarios=max_scenarios, timeout=timeout, as_json=False,
                                 sandbox_concurrency=sandbox_concurrency,
+                                testgen_concurrency=testgen_concurrency,
                             )
                         except typer.Exit:
                             pass  # every outcome is already recorded; the watch lives on

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sign up</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="card">
+    <h1>Sign up</h1>
+    <form id="signup-form">
+      <label>Name
+        <input type="text" id="name" required>
+      </label>
+      <label>Email
+        <input type="email" id="email" required>
+      </label>
+      <label>Password
+        <input type="password" id="password" minlength="8" required>
+      </label>
+      <button type="submit">Create account</button>
+    </form>
+    <p id="message" class="message"></p>
+    <p class="switch">Already have an account? <a href="/login">Log in</a></p>
+  </div>
+  <script>
+    document.getElementById("signup-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = document.getElementById("name").value;
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      const res = await fetch("/api/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password }),
+      });
+      const data = await res.json();
+      const msg = document.getElementById("message");
+      if (res.ok) {
+        msg.textContent = data.message;
+        msg.className = "message success";
+        window.location.href = "/dashboard";
+      } else {
+        msg.textContent = data.error;
+        msg.className = "message error";
+      }
+    });
+  </script>
+</body>
+</html>

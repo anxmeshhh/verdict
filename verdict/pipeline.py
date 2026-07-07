@@ -10,6 +10,7 @@ is presentation only - nothing in here depends on what a frontend does with
 an event, and a frontend that does nothing (the default PipelineEvents)
 still produces the same records, audit entries, and outcome.
 """
+import concurrent.futures
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -30,7 +31,7 @@ from verdict.intent import (
 from verdict.reporter import build_incomplete_record, build_record, new_run_id, save_run
 from verdict.sandbox import DEFAULT_SANDBOX_CONCURRENCY, SandboxError, check_docker, run_all, run_test
 from verdict.scorer import score
-from verdict.testgen import generate_test_code
+from verdict.testgen import DEFAULT_TESTGEN_CONCURRENCY, generate_test_code
 from verdict.validator import validate
 
 
@@ -46,6 +47,7 @@ class PipelineParams:
     timeout: int = 300
     force_regenerate: bool = False
     sandbox_concurrency: int = DEFAULT_SANDBOX_CONCURRENCY
+    testgen_concurrency: int = DEFAULT_TESTGEN_CONCURRENCY
 
     @property
     def mode(self) -> str:
@@ -180,7 +182,7 @@ def execute_pipeline(
         # That is a verdict (UNVERIFIED), not an infrastructure error.
         risk = score([])
         risk.reasons.insert(0, f"{u.stage}: {u.note}")
-        events.stage_ok("score", risk.level)
+        events.stage_ok("6/6 score", risk.level)
         record = build_record(run_id, holder.value, u.generation, [], risk, llm.model_id(config), tokens)
         record["note"] = u.note
         record["scope"] = params.scope
@@ -235,7 +237,7 @@ def _execute(
         raise _Abort("config", f"model '{config.model}' not pulled")
     if not docker_ok:
         raise _Abort("config", "Docker daemon not reachable")
-    events.stage_ok("config", f"{config.provider} and Docker ready")
+    events.stage_ok("1/6 config", f"{config.provider} and Docker ready")
 
     # [2/6] intent
     try:
@@ -246,7 +248,7 @@ def _execute(
     if not intent_result.diff.strip():
         scope = f" under {', '.join(params.paths)}" if params.paths else ""
         raise _Abort("intent", f"diff is empty{scope} - nothing to verify", status="skipped")
-    events.stage_ok("intent", f'"{display_intent_line(intent_result.intent)}"')
+    events.stage_ok("2/6 intent", f'"{display_intent_line(intent_result.intent)}"')
     if params.paths:
         events.stage_note("scope", f"only verifying: {', '.join(params.paths)}")
 
@@ -256,9 +258,9 @@ def _execute(
             manual_gen = load_scenarios(params.scenarios_file)
         except AuthoringError as e:
             raise _Abort("scenario-load", str(e))
-        events.stage_ok("scenario-load", f"{len(manual_gen.scenarios)} manual scenario(s) from {params.scenarios_file.name}")
+        events.stage_ok("3/6 scenario-load", f"{len(manual_gen.scenarios)} manual scenario(s) from {params.scenarios_file.name}")
         if intent_result.vague:
-            events.stage_warn("scenario-gen", f"intent too vague to generate ({intent_result.vague_reason}) - manual only")
+            events.stage_warn("3/6 scenario-gen", f"intent too vague to generate ({intent_result.vague_reason}) - manual only")
             generation = manual_gen
         else:
             try:
@@ -274,13 +276,13 @@ def _execute(
             detail = f"{len(merged.scenarios)} total after merge"
             if merged.dropped_duplicates:
                 detail += f" ({len(merged.dropped_duplicates)} generated duplicate(s) shadowed by manual)"
-            events.stage_ok("scenario-gen", detail)
+            events.stage_ok("3/6 scenario-gen", detail)
     elif params.scenarios_file:
         try:
             generation = load_scenarios(params.scenarios_file)
         except AuthoringError as e:
             raise _Abort("scenario-load", str(e))
-        events.stage_ok("scenario-load", f"{len(generation.scenarios)} scenario(s) from {params.scenarios_file.name}")
+        events.stage_ok("3/6 scenario-load", f"{len(generation.scenarios)} scenario(s) from {params.scenarios_file.name}")
     else:
         if intent_result.vague:
             raise _Abort(
@@ -296,7 +298,7 @@ def _execute(
             raise _Abort("scenario-gen", str(e))
         _track(generation.prompt_tokens, generation.output_tokens, generation.llm_duration_s)
         cache_note = "  [dim](cached)[/]" if generation.from_cache else ""
-        events.stage_ok("scenario-gen", f"{len(generation.scenarios)} scenario(s) generated{cache_note}")
+        events.stage_ok("3/6 scenario-gen", f"{len(generation.scenarios)} scenario(s) generated{cache_note}")
     for s in generation.scenarios:
         events.scenario_line(s.name)
 
@@ -305,11 +307,11 @@ def _execute(
     kept = [v.scenario for v in validations if v.traceable]
     dropped = [v for v in validations if not v.traceable]
     if not kept:
-        events.stage_warn("validate", "0 scenarios traceable to this diff")
+        events.stage_warn("4/6 validate", "0 scenarios traceable to this diff")
         for v in dropped:
             events.dropped_scenario(v.scenario.name, v.reason, cross_glyph=True)
         raise _Unverified("validate", "no generated scenario was traceable to this diff", generation)
-    events.stage_ok("validate", f"{len(kept)}/{len(validations)} traceable to the diff")
+    events.stage_ok("4/6 validate", f"{len(kept)}/{len(validations)} traceable to the diff")
     for v in dropped:
         events.dropped_scenario(v.scenario.name, v.reason, cross_glyph=False)
     cap_dropped = kept[params.max_scenarios:]
@@ -320,22 +322,41 @@ def _execute(
         # says so explicitly. A silent drop here is worse than a FAILED: the
         # report would look identical to a run that verified everything.
         events.stage_warn(
-            "validate",
+            "4/6 validate",
             f"running {len(kept)} of {len(kept) + len(cap_dropped)} traceable scenario(s) - "
             f"--max-scenarios={params.max_scenarios} cap reached, NOT run: {', '.join(s.name for s in cap_dropped)}",
         )
 
     # [5/6] sandbox (testgen + execution)
+    # Each scenario's test-code generation is an independent LLM call with no
+    # shared state, so it runs through a bounded pool exactly like sandbox
+    # execution below - one scenario's provider latency no longer serializes
+    # behind every other scenario's. Order is preserved (pool.map, not
+    # as_completed) so results line up with `kept` deterministically; events
+    # are emitted after the whole batch rather than mid-flight so the single
+    # CLI spinner isn't driven from multiple threads at once.
+    def _gen_one(s):
+        try:
+            return (s, generate_test_code(s, intent_result, config), None)
+        except GenerationError as e:
+            return (s, None, e)
+
+    testgen_workers = max(1, min(params.testgen_concurrency, len(kept)))
+    with events.working(f"writing checks for {len(kept)} scenario(s)..."):
+        if testgen_workers <= 1:
+            gen_results = [_gen_one(s) for s in kept]
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=testgen_workers) as pool:
+                gen_results = list(pool.map(_gen_one, kept))
+
     tests, ungeneratable = [], []
     provider_error_count = 0
-    for s in kept:
-        try:
-            with events.working(f"writing check for {s.name}..."):
-                t = generate_test_code(s, intent_result, config)
+    for s, t, e in gen_results:
+        if e is None:
             _track(t.prompt_tokens, t.output_tokens, t.llm_duration_s)
             tests.append(t)
-            events.stage_note("testgen", f"{s.name} [dim](attempt {t.attempts})[/]")
-        except GenerationError as e:
+            events.stage_note("5/6 testgen", f"{s.name} [dim](attempt {t.attempts})[/]")
+        else:
             ungeneratable.append(s)
             _track(0, 0, 0)
             if e.provider_error:
@@ -343,9 +364,9 @@ def _execute(
                 # model producing bad code - distinct from a genuine quality
                 # skip, so the log/audit trail attributes it correctly.
                 provider_error_count += 1
-                events.stage_warn("testgen", f"{s.name}: provider error, not a model failure - {e}")
+                events.stage_warn("5/6 testgen", f"{s.name}: provider error, not a model failure - {e}")
             else:
-                events.stage_warn("testgen", f"{s.name}: could not produce a sound check - skipped")
+                events.stage_warn("5/6 testgen", f"{s.name}: could not produce a sound check - skipped")
 
     if not tests:
         if provider_error_count and provider_error_count == len(ungeneratable):
@@ -357,6 +378,7 @@ def _execute(
             raise _Abort("testgen", f"the LLM provider failed on every scenario ({provider_error_count}/{len(kept)}) - could not attempt test generation")
         raise _Unverified("testgen", "no scenario produced runnable test code", generation)
 
+    events.stage_note("5/6 sandbox", f"running {len(tests)} check(s) against the real repo in isolated containers")
     try:
         with events.working("running scenarios in sandbox containers..."):
             results = run_all(
